@@ -1,0 +1,135 @@
+--- Server binary discovery and launch configuration.
+local M = {}
+
+--- Get the plugin's own root directory.
+---@return string
+local function plugin_root()
+  local source = debug.getinfo(1, "S").source:sub(2)
+  return vim.fn.fnamemodify(source, ":h:h:h")
+end
+
+--- Locate the intellij-server binary.
+--- Priority: installed (data dir) > vendored in plugin repo.
+---@return string?
+function M.find_binary()
+  -- 1. Installed via :IntellijServerInstall
+  local installed_bin = require("intellij-server.installer").server_bin()
+  if vim.fn.executable(installed_bin) == 1 then
+    return installed_bin
+  end
+
+  -- 2. Vendored binary shipped with this plugin
+  local vendored = plugin_root() .. "/server/bin/intellij-server"
+  if vim.fn.executable(vendored) == 1 then
+    return vendored
+  end
+
+  return nil
+end
+
+--- Build the command to launch the LSP server.
+--- On Unix the launcher spawns child processes (jbr JVM, Maven imports) — we
+--- run it as a process-group leader so the whole group can be killed on exit,
+--- catching even children reparented to PID 1. Uses `setsid` when available
+--- (Linux/util-linux), falling back to `perl` (always present on macOS).
+--- On Windows there are no process groups; process.kill_tree uses taskkill /T.
+--- Note: the native launcher reads bin/intellij-server.vmoptions itself —
+--- do NOT pass vmoptions as CLI arguments.
+---@param server_path string? Explicit binary path from config.
+---@return string[]?
+function M.build_cmd(server_path)
+  local bin = server_path or M.find_binary()
+  if not bin then
+    vim.notify(
+      "[intellij-server] Server binary not found.\n"
+        .. "Run :IntellijServerInstall to download it, or set `server_path` in the plugin config.",
+      vim.log.levels.ERROR
+    )
+    return nil
+  end
+
+  if vim.fn.has("win32") == 1 then
+    return { bin, "--stdio" }
+  end
+  if vim.fn.executable("setsid") == 1 then
+    return { "setsid", bin, "--stdio" }
+  end
+  if vim.fn.executable("perl") == 1 then
+    return { "perl", "-e", "setpgrp(0,0); exec @ARGV or die", bin, "--stdio" }
+  end
+  return { bin, "--stdio" }
+end
+
+--- Compute the EULA hash the server requires in initializationOptions.
+--- Hash = first 16 chars of SHA-256 of server/EULA.txt.
+---@param server_dir string The server/ directory next to the binary.
+---@return string?
+function M.eula_hash(server_dir)
+  local eula_path = server_dir .. "/EULA.txt"
+  if vim.fn.filereadable(eula_path) == 0 then
+    return nil
+  end
+  local result = vim.system({ "shasum", "-a", "256", eula_path }, { text = true }):wait()
+  if result.code == 0 and result.stdout then
+    return result.stdout:sub(1, 16)
+  end
+  return nil
+end
+
+--- Build the environment for the server process.
+--- Points indexes/config/logs at a persistent data dir instead of $TMPDIR.
+---@param server_dir string
+---@param data_dir string
+---@return table<string, string>
+function M.build_env(server_dir, data_dir)
+  return {
+    JAVA_HOME = server_dir .. "/jbr/Contents/Home",
+    IJ_JAVA_OPTIONS = table.concat({
+      "-Didea.config.path=" .. data_dir .. "/config",
+      "-Didea.system.path=" .. data_dir .. "/system",
+      "-Didea.log.path=" .. data_dir .. "/log",
+    }, " "),
+    -- Skip common Maven validation plugins during project import
+    MAVEN_ARGS = "-Dcheckstyle.skip=true -Dpmd.skip=true -Dspotbugs.skip=true -Djacoco.skip=true",
+  }
+end
+
+local build_markers = {
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "WORKSPACE",
+  "WORKSPACE.bazel",
+}
+
+--- Find the project root for a buffer.
+--- For multimodule projects this must be the TOPMOST directory containing a
+--- build marker, not the nearest one (which vim.fs.root would return).
+---@param bufnr integer
+---@param fallback_markers string[] Markers for the nearest-root fallback.
+---@return string
+function M.find_root(bufnr, fallback_markers)
+  local buf_path = vim.api.nvim_buf_get_name(bufnr)
+  local root_dir = nil
+  local dir = vim.fn.fnamemodify(buf_path, ":h")
+
+  while dir and dir ~= "" do
+    for _, marker in ipairs(build_markers) do
+      if vim.fn.filereadable(dir .. "/" .. marker) == 1 then
+        root_dir = dir
+        break
+      end
+    end
+    local parent = vim.fn.fnamemodify(dir, ":h")
+    if parent == dir then
+      break
+    end
+    dir = parent
+  end
+
+  return root_dir or vim.fs.root(bufnr, fallback_markers) or vim.fn.fnamemodify(buf_path, ":h")
+end
+
+return M
