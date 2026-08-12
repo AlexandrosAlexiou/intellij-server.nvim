@@ -53,8 +53,9 @@ function M.open()
     vim.api.nvim_set_current_win(wins[1])
     return
   end
-  vim.cmd("botright 12split")
+  vim.cmd("botright split")
   vim.api.nvim_win_set_buf(0, buf)
+  vim.api.nvim_win_set_height(0, math.floor(vim.o.lines * 0.5))
   vim.wo.number = false
   vim.wo.relativenumber = false
   vim.wo.wrap = false
