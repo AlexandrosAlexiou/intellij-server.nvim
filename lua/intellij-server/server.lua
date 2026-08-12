@@ -1,6 +1,29 @@
 --- Server binary discovery and launch configuration.
 local M = {}
 
+--- Resolve a JDK home from the current environment.
+--- Preference: explicit `JAVA_HOME`, then the `java` executable on PATH.
+---@return string?
+local function detect_java_home()
+  local java_home = vim.env.JAVA_HOME
+  if java_home and java_home ~= "" then
+    return java_home
+  end
+
+  local java_bin = vim.fn.exepath("java")
+  if java_bin == "" then
+    return nil
+  end
+
+  local real_java_bin = (vim.uv or vim.loop).fs_realpath(java_bin) or java_bin
+  local bin_dir = vim.fn.fnamemodify(real_java_bin, ":h")
+  if vim.fn.fnamemodify(bin_dir, ":t") == "bin" then
+    return vim.fn.fnamemodify(bin_dir, ":h")
+  end
+
+  return nil
+end
+
 --- Get the plugin's own root directory.
 ---@return string
 local function plugin_root()
@@ -80,10 +103,11 @@ end
 --- Points indexes/config/logs at a persistent data dir instead of $TMPDIR.
 ---@param server_dir string
 ---@param data_dir string
+---@param java_home string? Explicit JDK home override.
 ---@return table<string, string>
-function M.build_env(server_dir, data_dir)
+function M.build_env(server_dir, data_dir, java_home)
   return {
-    JAVA_HOME = server_dir .. "/jbr/Contents/Home",
+    JAVA_HOME = java_home or detect_java_home() or server_dir .. "/jbr/Contents/Home",
     IJ_JAVA_OPTIONS = table.concat({
       "-Didea.config.path=" .. data_dir .. "/config",
       "-Didea.system.path=" .. data_dir .. "/system",

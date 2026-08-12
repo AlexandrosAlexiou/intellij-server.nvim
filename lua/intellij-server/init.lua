@@ -3,6 +3,7 @@ local M = {}
 
 ---@class IntellijServerConfig
 ---@field server_path string? Path to the intellij-server binary. Auto-detected if nil.
+---@field java_home string? Path to the JDK used by the server process. Defaults to the bundled JBR.
 ---@field filetypes string[]? File types to attach to.
 ---@field root_markers string[]? Files/dirs used for the nearest-root fallback.
 ---@field autostart boolean? Start the LSP automatically when opening a matching file.
@@ -17,6 +18,7 @@ local M = {}
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
 M.defaults = {
   server_path = nil,
+  java_home = nil,
   filetypes = { "java", "kotlin" },
   root_markers = {
     "pom.xml",
@@ -225,7 +227,7 @@ function M.start(bufnr)
   vim.lsp.start({
     name = "intellij-server",
     cmd = cmd,
-    cmd_env = server.build_env(server_dir, data_dir),
+    cmd_env = server.build_env(server_dir, data_dir, M.config.java_home),
     cmd_cwd = root_dir,
     root_dir = root_dir,
     capabilities = capabilities,
