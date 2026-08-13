@@ -387,7 +387,10 @@ fetched you land in decompiled stubs.
 
 ```groovy
 allprojects {
-    plugins.withId("java") {
+    // Plain Java and kotlin("jvm") projects both apply the "java" plugin, which
+    // extends "java-base". Matching "java-base" additionally catches Kotlin
+    // Multiplatform JVM targets, which apply only "java-base".
+    plugins.withId("java-base") {
         apply plugin: "idea"
         idea {
             module {
@@ -412,7 +415,11 @@ allprojects { project ->
     project.tasks.register("downloadSources") {
         notCompatibleWithConfigurationCache("resolves configurations at execution time")
         doLast {
-            ["compileClasspath", "testCompileClasspath"].each { cfgName ->
+            // compileClasspath/testCompileClasspath exist in plain Java and
+            // kotlin("jvm") projects alike (both apply the "java" plugin); the
+            // jvm* names are only for Kotlin Multiplatform JVM targets.
+            ["compileClasspath", "testCompileClasspath",
+             "jvmCompileClasspath", "jvmTestCompileClasspath"].each { cfgName ->
                 def cfg = project.configurations.findByName(cfgName)
                 if (cfg == null || !cfg.canBeResolved) {
                     return
