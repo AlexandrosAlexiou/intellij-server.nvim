@@ -55,12 +55,14 @@ function M.get_data_paths()
   local paths = { M.data_dir() }
 
   -- The analyzer writes RocksDB indexes to a separate cache dir
-  local home = os.getenv("HOME") or ""
   local analyzer_cache
-  if vim.fn.has("mac") == 1 then
-    analyzer_cache = home .. "/Library/Caches/JetBrains/analyzer"
+  if vim.fn.has("win32") == 1 then
+    local local_app_data = os.getenv("LOCALAPPDATA") or ((os.getenv("USERPROFILE") or "") .. "/AppData/Local")
+    analyzer_cache = local_app_data .. "/JetBrains/analyzer"
+  elseif vim.fn.has("mac") == 1 then
+    analyzer_cache = (os.getenv("HOME") or "") .. "/Library/Caches/JetBrains/analyzer"
   else
-    local xdg_cache = os.getenv("XDG_CACHE_HOME") or (home .. "/.cache")
+    local xdg_cache = os.getenv("XDG_CACHE_HOME") or ((os.getenv("HOME") or "") .. "/.cache")
     analyzer_cache = xdg_cache .. "/JetBrains/analyzer"
   end
   if vim.fn.isdirectory(analyzer_cache) == 1 then

@@ -158,6 +158,19 @@ function M.setup(opts)
   end
 end
 
+--- Check for an absolute path on any platform (Unix, drive letter, UNC).
+---@param path string
+---@return boolean
+local function is_abs_path(path)
+  if vim.startswith(path, "/") then
+    return true
+  end
+  if vim.fn.has("win32") == 1 then
+    return path:match("^%a:[/\\]") ~= nil or path:match("^\\\\") ~= nil
+  end
+  return false
+end
+
 --- Start or attach the LSP client to a buffer.
 ---@param bufnr integer?
 function M.start(bufnr)
@@ -166,7 +179,7 @@ function M.start(bufnr)
   -- Only start for real, named files — unnamed/scratch buffers would produce
   -- a relative or empty root and an invalid rootUri (crashes the server).
   local buf_path = vim.api.nvim_buf_get_name(bufnr)
-  if buf_path == "" or not vim.startswith(buf_path, "/") or vim.bo[bufnr].buftype ~= "" then
+  if buf_path == "" or not is_abs_path(buf_path) or vim.bo[bufnr].buftype ~= "" then
     return
   end
 

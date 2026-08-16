@@ -42,7 +42,8 @@ function M.find_binary()
   end
 
   -- 2. Vendored binary shipped with this plugin
-  local vendored = plugin_root() .. "/server/bin/intellij-server"
+  local suffix = vim.fn.has("win32") == 1 and ".exe" or ""
+  local vendored = plugin_root() .. "/server/bin/intellij-server" .. suffix
   if vim.fn.executable(vendored) == 1 then
     return vendored
   end
@@ -92,11 +93,10 @@ function M.eula_hash(server_dir)
   if vim.fn.filereadable(eula_path) == 0 then
     return nil
   end
-  local result = vim.system({ "shasum", "-a", "256", eula_path }, { text = true }):wait()
-  if result.code == 0 and result.stdout then
-    return result.stdout:sub(1, 16)
-  end
-  return nil
+  -- readfile in binary mode + concat reconstructs the exact file bytes
+  -- (EULA.txt contains no NUL bytes), matching `shasum -a 256` output.
+  local content = table.concat(vim.fn.readfile(eula_path, "b"), "\n")
+  return vim.fn.sha256(content):sub(1, 16)
 end
 
 --- Build the environment for the server process.
@@ -106,8 +106,13 @@ end
 ---@param java_home string? Explicit JDK home override.
 ---@return table<string, string>
 function M.build_env(server_dir, data_dir, java_home)
+  -- The bundled JBR uses the macOS app-bundle layout on mac, plain jbr/ elsewhere
+  local jbr_home = server_dir .. "/jbr/Contents/Home"
+  if vim.fn.isdirectory(jbr_home) == 0 then
+    jbr_home = server_dir .. "/jbr"
+  end
   return {
-    JAVA_HOME = java_home or detect_java_home() or server_dir .. "/jbr/Contents/Home",
+    JAVA_HOME = java_home or detect_java_home() or jbr_home,
     IJ_JAVA_OPTIONS = table.concat({
       "-Didea.config.path=" .. data_dir .. "/config",
       "-Didea.system.path=" .. data_dir .. "/system",

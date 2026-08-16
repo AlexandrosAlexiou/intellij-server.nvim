@@ -119,7 +119,7 @@ end
 ---@param template string
 function M._apply_local(filepath, template)
   local name = vim.fn.fnamemodify(filepath, ":t:r")
-  local dir = vim.fn.fnamemodify(filepath, ":h")
+  local dir = vim.fn.fnamemodify(filepath, ":h"):gsub("\\", "/")
 
   -- Derive package name from directory structure (heuristic)
   local package_name = ""
