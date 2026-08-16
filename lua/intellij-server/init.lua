@@ -124,21 +124,8 @@ function M.setup(opts)
 
       local lens = M.config.code_lens or {}
       if lens.enabled ~= false and client.server_capabilities.codeLensProvider then
-        if vim.lsp.codelens.enable then
-          -- Neovim 0.12+: enable() auto-refreshes on buffer changes.
-          vim.lsp.codelens.enable(true, { bufnr = args.buf })
-        else
-          -- Older Neovim: code lenses are never refreshed automatically.
-          vim.lsp.codelens.refresh({ bufnr = args.buf })
-          vim.api.nvim_create_autocmd({ "BufEnter", "InsertLeave", "TextChanged" }, {
-            group = vim.api.nvim_create_augroup("IntellijServerCodeLens" .. args.buf, { clear = true }),
-            buffer = args.buf,
-            callback = function()
-              vim.lsp.codelens.refresh({ bufnr = args.buf })
-            end,
-            desc = "Refresh intellij-server code lenses",
-          })
-        end
+        -- enable() auto-refreshes on buffer changes.
+        vim.lsp.codelens.enable(true, { bufnr = args.buf })
       end
     end,
     desc = "Enable inlay hints and LSP folding for intellij-server buffers",
@@ -237,6 +224,25 @@ function M.start(bufnr)
     return response
   end
 
+  local init_options = {}
+  init_options.eulaHash = server.eula_hash(server_dir)
+
+  local handlers = {
+    ["workspace/configuration"] = configuration_handler,
+    -- The completion apply command positions the caret via showDocument;
+    -- place it in the current buffer instead of switching windows/scrolling.
+    ["window/showDocument"] = function(_, params, ctx)
+      return require("intellij-server.completion").show_document(params, ctx)
+    end,
+  }
+  -- Streamed import/build output (Maven downloads, compilation, …),
+  -- same channel the VS Code extension shows as its "Build" panel.
+  if (M.config.build_log or {}).enabled ~= false then
+    handlers["intellij/importLog"] = function(_, params, ctx)
+      build_log.handler(_, params, ctx)
+    end
+  end
+
   vim.lsp.start({
     name = "intellij-server",
     cmd = cmd,
@@ -245,19 +251,7 @@ function M.start(bufnr)
     root_dir = root_dir,
     capabilities = capabilities,
     settings = M.config.settings,
-    handlers = {
-      ["workspace/configuration"] = configuration_handler,
-      -- The completion apply command positions the caret via showDocument;
-      -- place it in the current buffer instead of switching windows/scrolling.
-      ["window/showDocument"] = function(_, params, ctx)
-        return require("intellij-server.completion").show_document(params, ctx)
-      end,
-      -- Streamed import/build output (Maven downloads, compilation, …),
-      -- same channel the VS Code extension shows as its "Build" panel.
-      ["intellij/importLog"] = (M.config.build_log or {}).enabled ~= false and function(_, params, ctx)
-        build_log.handler(_, params, ctx)
-      end or nil,
-    },
+    handlers = handlers,
     -- Make command-driven completion behave like the VS Code client (client
     -- inserts nothing, server applies text/imports/caret). Completion is
     -- otherwise broken in Neovim. See lua/intellij-server/completion.lua.
@@ -265,9 +259,7 @@ function M.start(bufnr)
       require("intellij-server.completion").attach(client)
     end,
     on_attach = M.config.on_attach,
-    init_options = {
-      eulaHash = server.eula_hash(server_dir),
-    },
+    init_options = init_options,
   }, {
     bufnr = bufnr,
     reuse_client = function(client, config)

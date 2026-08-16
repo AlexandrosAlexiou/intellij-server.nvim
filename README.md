@@ -6,7 +6,7 @@ Provides Java and Kotlin language support including code completion, diagnostics
 
 ## Requirements
 
-- Neovim ≥ 0.10
+- Neovim ≥ 0.12
 - `curl` and `unzip` on PATH (for `:IntellijServerInstall`)
 - [nvim-dap](https://github.com/mfussenegger/nvim-dap) (optional, for debugging)
 

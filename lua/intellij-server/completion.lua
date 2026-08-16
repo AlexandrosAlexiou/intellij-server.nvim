@@ -125,6 +125,7 @@ function M.attach(client)
   if client._intellij_completion_wrapped then
     return
   end
+  ---@diagnostic disable-next-line: inject-field
   client._intellij_completion_wrapped = true
 
   local orig_request = client.request

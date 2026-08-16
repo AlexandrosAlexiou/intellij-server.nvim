@@ -20,6 +20,9 @@ end
 --- Kill process groups of all running intellij-server clients.
 function M.kill_all_clients()
   for _, client in ipairs(vim.lsp.get_clients({ name = "intellij-server" })) do
+    -- rpc.pid is not part of the public vim.lsp.rpc.PublicClient type,
+    -- but stdio transports expose it at runtime.
+    ---@diagnostic disable-next-line: undefined-field
     local pid = client.rpc and client.rpc.pid and client.rpc.pid()
     if pid then
       M.kill_tree(pid)
@@ -45,8 +48,7 @@ function M.show_logs()
   end
 
   -- Neovim's LSP RPC log (shared across clients).
-  local get_path = vim.lsp.log and vim.lsp.log.get_filename or vim.lsp.get_log_path
-  vim.cmd("vsplit | edit " .. vim.fn.fnameescape(get_path()) .. " | normal! G")
+  vim.cmd("vsplit | edit " .. vim.fn.fnameescape(vim.lsp.log.get_filename()) .. " | normal! G")
 end
 
 --- Paths removed by :IntellijServerClean.
