@@ -72,20 +72,31 @@ function M.build_cmd(server_path)
     return nil
   end
 
+  local args = { bin, "--stdio" }
+  -- Since 0.0.10 the server refuses to start unless the accepted EULA hash is
+  -- passed via --eula (previously initializationOptions.eulaHash).
+  local eula = M.eula_hash(vim.fn.fnamemodify(bin, ":h:h"))
+  if eula then
+    table.insert(args, "--eula")
+    table.insert(args, eula)
+  end
+
   if vim.fn.has("win32") == 1 then
-    return { bin, "--stdio" }
+    return args
   end
   if vim.fn.executable("setsid") == 1 then
-    return { "setsid", bin, "--stdio" }
+    return vim.list_extend({ "setsid" }, args)
   end
   if vim.fn.executable("perl") == 1 then
-    return { "perl", "-e", "setpgrp(0,0); exec @ARGV or die", bin, "--stdio" }
+    return vim.list_extend({ "perl", "-e", "setpgrp(0,0); exec @ARGV or die" }, args)
   end
-  return { bin, "--stdio" }
+  return args
 end
 
---- Compute the EULA hash the server requires in initializationOptions.
+--- Compute the EULA acceptance hash the server requires.
 --- Hash = first 16 chars of SHA-256 of server/EULA.txt.
+--- Up to server 0.0.8 this was sent as initializationOptions.eulaHash; since
+--- 0.0.10 it must be passed as the `--eula` command-line option instead.
 ---@param server_dir string The server/ directory next to the binary.
 ---@return string?
 function M.eula_hash(server_dir)

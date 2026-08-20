@@ -57,7 +57,21 @@ function M.setup()
     end)
   end
 
-  -- Default configurations for Java and Kotlin
+  -- Default configurations for Java and Kotlin.
+  --
+  -- Launch properties understood by the adapter (server 0.0.10+):
+  --   mainClass   (string)    fully qualified main class
+  --   args        (string[])  program arguments
+  --   env         (table)     extra environment variables for the process
+  --   javaExec    (string)    path to the java executable (default: project SDK)
+  --   modulePath  (string[])  JPMS module path override; if empty, resolved
+  --               from the project model when mainClass is in a named module
+  --   moduleName  (string)    JPMS module owning the main class, launched as
+  --               `-m moduleName/mainClass`; resolved automatically if empty
+  --   console     ("internalConsole"|"integratedTerminal"|"externalTerminal")
+  --               where to run the program. Default: "integratedTerminal" —
+  --               the adapter sends a DAP runInTerminal reverse request,
+  --               which nvim-dap answers by opening a terminal buffer.
   local configs = {
     {
       type = "intellij",
@@ -66,6 +80,10 @@ function M.setup()
       mainClass = function()
         return vim.fn.input("Main class: ")
       end,
+      -- Run the program in a Neovim terminal buffer (nvim-dap handles the
+      -- runInTerminal request). Use "internalConsole" to keep output in the
+      -- REPL/console instead.
+      console = "integratedTerminal",
     },
     {
       type = "intellij",

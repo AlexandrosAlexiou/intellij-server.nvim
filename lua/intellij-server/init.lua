@@ -1,6 +1,10 @@
 --- IntelliJ LSP server plugin for Neovim.
 local M = {}
 
+---@class IntellijProjectSpec
+---@field type "gradle"|"maven"|"bazel"|"jps"|"gomodules"|"gomodules-recursive-scan"|"json" Build system used to import the project.
+---@field path string Workspace root or build file — a file:// URI or a filesystem path.
+
 ---@class IntellijServerConfig
 ---@field server_path string? Path to the intellij-server binary. Auto-detected if nil.
 ---@field java_home string? Path to the JDK used by the server process. Defaults to the bundled JBR.
@@ -16,10 +20,14 @@ local M = {}
 ---@field inline_completion { enabled?: boolean, keymaps?: { show?: string, accept?: string, dismiss?: string } }?
 ---@field dap { enabled?: boolean }?
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
+---@field projects (IntellijProjectSpec[]|fun(root_dir: string): IntellijProjectSpec[])? Explicit project imports (initializationOptions.projects). Overrides marker-based auto-import.
+---@field disable_rocksdb_wal boolean? Disable the RocksDB write-ahead log for the server's index storage.
 M.defaults = {
   server_path = nil,
   java_home = nil,
   filetypes = { "java", "kotlin" },
+  projects = nil,
+  disable_rocksdb_wal = nil,
   root_markers = {
     "pom.xml",
     "build.gradle",
@@ -224,8 +232,29 @@ function M.start(bufnr)
     return response
   end
 
+  -- Note: 0.0.8 clients sent `eulaHash` here; since 0.0.10 the server
+  -- requires it as the `--eula` CLI flag instead (see server.build_cmd).
   local init_options = {}
-  init_options.eulaHash = server.eula_hash(server_dir)
+
+  -- Explicit project imports, mirroring the VS Code `intellij.projects`
+  -- setting. Paths are normalized to file:// URIs as the server expects.
+  local projects = M.config.projects
+  if type(projects) == "function" then
+    projects = projects(root_dir)
+  end
+  if type(projects) == "table" and not vim.tbl_isempty(projects) then
+    init_options.projects = vim.tbl_map(function(project)
+      local path = project.path
+      if type(path) == "string" and not path:match("^%a[%w+.-]*://") then
+        path = vim.uri_from_fname(vim.fn.fnamemodify(path, ":p"))
+      end
+      return { type = project.type, path = path }
+    end, projects)
+  end
+
+  if M.config.disable_rocksdb_wal ~= nil then
+    init_options.disableRocksDBWriteAheadLog = M.config.disable_rocksdb_wal
+  end
 
   local handlers = {
     ["workspace/configuration"] = configuration_handler,

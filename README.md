@@ -123,6 +123,20 @@ require("intellij-server").setup({
     enabled = true,  -- requires nvim-dap
   },
 
+  -- Explicit project imports (initializationOptions.projects), equivalent to
+  -- the VS Code `intellij.projects` setting. Overrides marker-based
+  -- auto-import. Types: gradle, maven, bazel, jps, gomodules,
+  -- gomodules-recursive-scan, json. Paths may be file:// URIs or plain paths.
+  -- Can also be a function(root_dir) returning the list.
+  -- projects = {
+  --   { type = "gradle", path = "/path/to/project" },
+  -- },
+  projects = nil,
+
+  -- Disable the RocksDB write-ahead log for the server's index storage
+  -- (initializationOptions.disableRocksDBWriteAheadLog).
+  disable_rocksdb_wal = nil,
+
   -- Streamed import/build log (Maven downloads, compilation output, …)
   -- The same detail the VS Code extension shows in its "Build" panel.
   -- View with :IntellijServerBuildLog
@@ -196,7 +210,7 @@ The inconsistent `settings.`/spaces in the Java key names are server-side quirks
 
 ### Standard LSP
 
-Everything the server (v0.0.8) advertises is supported. Features marked *automatic* work through
+Everything the server (v0.0.10) advertises is supported. Features marked *automatic* work through
 Neovim's built-in LSP client with no configuration.
 
 | Feature | How to use |
@@ -312,6 +326,36 @@ With [nvim-dap](https://github.com/mfussenegger/nvim-dap) installed, the plugin 
 
 The adapter sends `workspace/executeCommand("start_debug_server")` to the LSP, which returns a DAP port.
 
+Launch configurations support these properties (server 0.0.10+):
+
+| Property     | Type       | Description |
+|--------------|------------|-------------|
+| `mainClass`  | `string`   | Fully qualified main class to launch |
+| `args`       | `string[]` | Program arguments |
+| `env`        | `table`    | Extra environment variables for the launched process |
+| `javaExec`   | `string`   | Path to the `java` executable (default: project SDK) |
+| `modulePath` | `string[]` | JPMS module path override; resolved from the project model if empty |
+| `moduleName` | `string`   | JPMS module owning the main class, launched as `-m moduleName/mainClass`; resolved automatically if empty |
+| `console`    | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), or `externalTerminal` |
+
+With `integratedTerminal` (the default) the adapter sends a DAP `runInTerminal`
+reverse request, which nvim-dap answers by opening a terminal buffer for the
+program's stdio. Use `internalConsole` to keep output in the DAP REPL instead.
+
+Example custom configuration:
+
+```lua
+table.insert(require("dap").configurations.java, {
+  type = "intellij",
+  request = "launch",
+  name = "Run MyApp",
+  mainClass = "com.example.MyApp",
+  args = { "--port", "8080" },
+  env = { MY_FLAG = "1" },
+  console = "internalConsole",
+})
+```
+
 ### File Templates
 
 `:IntellijServerNewFile` creates new files using IntelliJ's template engine. Available templates:
@@ -355,7 +399,7 @@ These persist across reboots (unlike the default temp directory behavior). To cl
 ```
 ~/.local/share/nvim/intellij-server/
 ├── server/          # extracted server (bin, lib, jbr, plugins, etc.)
-└── .version         # version marker (e.g., "0.0.8+263.2689.0")
+└── .version         # version marker (e.g., "0.0.10+263.3533.0")
 ```
 
 ## How it works
