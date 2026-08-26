@@ -128,6 +128,9 @@ local function open_package(paths)
   end
   vim.ui.select(paths, {
     prompt = "Package directory",
+    -- `kind` is what lets a vim.ui.select implementation single this picker out,
+    -- for a layout or a formatter of its own.
+    kind = "intellij_package",
     format_item = function(path)
       return vim.fn.fnamemodify(path, ":~:.")
     end,

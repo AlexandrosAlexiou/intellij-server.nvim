@@ -269,6 +269,11 @@ plain `vim.lsp.buf.definition()` and nothing has to change in your LSP config:
   package), `vim.ui.select` asks which one first. Cancelling does nothing, in
   silence.
 
+The prompt is drawn by whatever `vim.ui.select` you already use — snacks,
+dressing, telescope, fzf-lua — so it matches the rest of your editor, and falls
+back to Neovim's built-in numbered list when there is none. It is tagged
+`kind = "intellij_package"`, for a layout or formatter of its own.
+
 No location for a directory is ever handed back to Neovim, which is what keeps it
 from opening a buffer for the path — an empty buffer that oil, being lazy-loaded
 in most configurations, then adopts halfway through the jump and reports as an
