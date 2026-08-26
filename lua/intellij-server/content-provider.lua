@@ -100,7 +100,6 @@ local function populate(bufnr)
   vim.bo[bufnr].modifiable = false
   vim.bo[bufnr].modified = false
   vim.bo[bufnr].readonly = true
-  vim.bo[bufnr].buftype = "nofile"
   vim.bo[bufnr].swapfile = false
   vim.bo[bufnr].buflisted = true
 
@@ -125,6 +124,17 @@ function M.open(uri, range)
   if range then
     local line = math.min(range.start.line + 1, vim.api.nvim_buf_line_count(bufnr))
     pcall(vim.api.nvim_win_set_cursor, 0, { line, range.start.character })
+  end
+end
+
+--- Attach the IntelliJ LSP client to all already-open virtual buffers.
+---@param client_id integer
+function M.attach_open_buffers(client_id)
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    local name = vim.api.nvim_buf_get_name(bufnr)
+    if name:match("^jar://") or name:match("^jrt://") then
+      pcall(vim.lsp.buf_attach_client, bufnr, client_id)
+    end
   end
 end
 

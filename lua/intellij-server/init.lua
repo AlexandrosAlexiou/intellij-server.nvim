@@ -135,6 +135,8 @@ function M.setup(opts)
         -- enable() auto-refreshes on buffer changes.
         vim.lsp.codelens.enable(true, { bufnr = args.buf })
       end
+
+      require("intellij-server.content-provider").attach_open_buffers(client.id)
     end,
     desc = "Enable inlay hints and LSP folding for intellij-server buffers",
   })
