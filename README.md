@@ -56,6 +56,12 @@ require("intellij-server").setup({
   -- File types that trigger the LSP
   filetypes = { "java", "kotlin" },
 
+  -- Extra JVM options for the server process (default: nil).
+  -- Appended after bin/intellij-server.vmoptions, so -Xmx wins over the
+  -- 2 GB the server ships with — raise it if the server dies with
+  -- OutOfMemoryError (see Troubleshooting)
+  jvm_args = { "-Xmx8g" },
+
   -- Files/directories that mark the project root
   root_markers = {
     "pom.xml", "build.gradle", "build.gradle.kts",
@@ -494,6 +500,28 @@ Then run it from the project root (requires Gradle 7.5+ for variant reselection)
 
 Either way, re-sync the project afterwards (restart the server or reload the project) so the freshly cached sources
 jars are picked up.
+
+### The server dies with `java.lang.OutOfMemoryError: Java heap space`
+
+The server ships with a 2 GB heap (`-Xmx2048m` in `server/bin/intellij-server.vmoptions`), which large or
+dependency-heavy projects can exhaust — typically during or shortly after project import. In `:IntellijServerLogs` this
+shows up as repeated `LowMemoryWatcher - Low memory signal received` followed by the OOM and a heap dump.
+
+Raise the heap with `jvm_args`, then restart with `:IntellijServerRestart`:
+
+```lua
+require("intellij-server").setup({
+  jvm_args = { "-Xmx8g" },
+})
+```
+
+`IJ_JAVA_OPTIONS` is applied after the vmoptions file, so a `-Xmx` here wins without editing (or losing on reinstall)
+anything inside the server directory.
+
+Heap dumps land in the plugin's log directory (`:IntellijServerLogs`); each one is roughly the size of the heap that
+overflowed, so delete them once you are done with them. Note that the JetBrains launcher otherwise writes them to
+`$HOME/java_error_in_intellij-server.hprof` and then refuses to overwrite that file, so a stale ~1 GB dump may be
+sitting in your home directory from before this was redirected.
 
 ## License
 

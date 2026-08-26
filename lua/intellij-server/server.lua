@@ -115,20 +115,31 @@ end
 ---@param server_dir string
 ---@param data_dir string
 ---@param java_home string? Explicit JDK home override.
+---@param jvm_args string[]? Extra JVM options, e.g. { "-Xmx8g" }.
 ---@return table<string, string>
-function M.build_env(server_dir, data_dir, java_home)
+function M.build_env(server_dir, data_dir, java_home, jvm_args)
   -- The bundled JBR uses the macOS app-bundle layout on mac, plain jbr/ elsewhere
   local jbr_home = server_dir .. "/jbr/Contents/Home"
   if vim.fn.isdirectory(jbr_home) == 0 then
     jbr_home = server_dir .. "/jbr"
   end
+
+  local java_options = {
+    "-Didea.config.path=" .. data_dir .. "/config",
+    "-Didea.system.path=" .. data_dir .. "/system",
+    "-Didea.log.path=" .. data_dir .. "/log",
+    -- The launcher dumps the heap on OOM to $HOME/java_error_in_intellij-server.hprof,
+    -- ~1 GB that is never cleaned up and that blocks the next dump once it
+    -- exists ("File exists"). A directory here makes the JVM name each dump.
+    "-XX:HeapDumpPath=" .. data_dir .. "/log",
+  }
+  -- Last wins in the JVM, and IJ_JAVA_OPTIONS is appended after
+  -- bin/intellij-server.vmoptions, so -Xmx here overrides the shipped heap cap.
+  vim.list_extend(java_options, jvm_args or {})
+
   return {
     JAVA_HOME = java_home or detect_java_home() or jbr_home,
-    IJ_JAVA_OPTIONS = table.concat({
-      "-Didea.config.path=" .. data_dir .. "/config",
-      "-Didea.system.path=" .. data_dir .. "/system",
-      "-Didea.log.path=" .. data_dir .. "/log",
-    }, " "),
+    IJ_JAVA_OPTIONS = table.concat(java_options, " "),
     -- Skip common Maven validation plugins during project import
     MAVEN_ARGS = "-Dcheckstyle.skip=true -Dpmd.skip=true -Dspotbugs.skip=true -Djacoco.skip=true",
   }
