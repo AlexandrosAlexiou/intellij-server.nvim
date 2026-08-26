@@ -18,6 +18,7 @@ local M = {}
 ---@field inlay_hints { enabled?: boolean }? Enable inlay hints on attach (default: on).
 ---@field folding { enabled?: boolean }? Use LSP folding ranges for folds (default: on).
 ---@field code_lens { enabled?: boolean }? Refresh and display code lenses (default: on).
+---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
 ---@field inline_completion { enabled?: boolean, keymaps?: { show?: string, accept?: string, dismiss?: string } }?
 ---@field dap { enabled?: boolean }?
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
@@ -73,6 +74,7 @@ M.defaults = {
   inlay_hints = { enabled = true },
   folding = { enabled = true },
   code_lens = { enabled = true },
+  navigation = { enabled = true },
   inline_completion = { enabled = true },
   dap = { enabled = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
@@ -215,6 +217,11 @@ function M.setup(opts)
 
   -- Virtual document handling (jar:/jrt: URIs -> decompiled sources)
   require("intellij-server.content-provider").setup()
+
+  -- Package definitions resolve to directories; show them as a file listing.
+  if (M.config.navigation or {}).enabled ~= false then
+    require("intellij-server.navigation").setup()
+  end
 
   local ic = M.config.inline_completion or {}
   if ic.enabled ~= false then
@@ -360,6 +367,9 @@ function M.start(bufnr)
     -- otherwise broken in Neovim. See lua/intellij-server/completion.lua.
     on_init = function(client)
       require("intellij-server.completion").attach(client)
+      if (M.config.navigation or {}).enabled ~= false then
+        require("intellij-server.navigation").attach(client)
+      end
     end,
     on_attach = M.config.on_attach,
     init_options = init_options,

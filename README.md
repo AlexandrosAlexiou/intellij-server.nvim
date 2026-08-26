@@ -115,6 +115,9 @@ require("intellij-server").setup({
   -- Code lens: auto-refresh on attach and edits; run with vim.lsp.codelens.run()
   code_lens = { enabled = true },
 
+  -- Package navigation: open package definitions as a directory listing
+  navigation = { enabled = true },
+
   -- Inline completion (ghost text suggestions)
   inline_completion = {
     enabled = true,
@@ -243,6 +246,45 @@ Neovim's built-in LSP client with no configuration.
 | Type hierarchy | `vim.lsp.buf.typehierarchy("subtypes")` / `("supertypes")` |
 
 Not provided by the server: go to declaration, range/on-type formatting, selection range.
+
+### Package navigation (go to definition on a package)
+
+Asking for the definition of a package name — the `org.pkl.core` in a `package`
+or `import` statement — makes the server answer with the directories that make
+up that package: one per source root, repeated once per package fragment.
+Neovim has nothing to show for a directory, so plain `vim.lsp.buf.definition()`
+either opens an empty buffer named after the path, or, once there is more than
+one location, fills the quickfix list with dozens of entries that all read
+`pkl-core/src/test/kotlin/org/pkl/core|1 col 1|`.
+
+The plugin takes those answers out of Neovim's hands, so `gd` can stay mapped to
+plain `vim.lsp.buf.definition()` and nothing has to change in your LSP config:
+
+- duplicate locations are collapsed, so a package comes down to one entry per
+  source root instead of one per fragment;
+- an answer that is nothing but directories is opened as a listing directly, in
+  [oil.nvim](https://github.com/stevearc/oil.nvim) (or with `:edit`, i.e. netrw,
+  when oil is not installed), leaving a jumplist entry so `<C-o>` comes back;
+- when more than one source root is left (`src/main` and `src/test` of the same
+  package), `vim.ui.select` asks which one first. Cancelling does nothing, in
+  silence.
+
+No location for a directory is ever handed back to Neovim, which is what keeps it
+from opening a buffer for the path — an empty buffer that oil, being lazy-loaded
+in most configurations, then adopts halfway through the jump and reports as an
+unsaved listing.
+
+This only touches directories the server answered with; browsing directories any
+other way is left to your file explorer. Set `navigation = { enabled = false }`
+to opt out.
+
+A mixed answer — directories plus real declarations — is left to Neovim's usual
+behaviour: jump when there is one location, quickfix list when there are more.
+
+`vim.lsp.buf.definition()` hands the client its own callback, so this cannot live
+in a `textDocument/definition` entry in `handlers` — the plugin wraps the request
+on its own client instead, which leaves every other LSP client alone. It covers
+`textDocument/definition`, `typeDefinition`, `declaration` and `implementation`.
 
 ### Completion insertion fix
 
