@@ -83,6 +83,59 @@ M.config = {}
 
 --- Setup the plugin.
 ---@param opts IntellijServerConfig?
+--- Is `path` inside `root`?
+---@param path string
+---@param root string?
+---@return boolean
+local function is_under(path, root)
+  if not root or root == "" or path == "" then
+    return false
+  end
+  path = vim.fs.normalize(path)
+  root = vim.fs.normalize(root):gsub("/$", "")
+  return path == root or vim.startswith(path, root .. "/")
+end
+
+--- Point 'foldexpr' at the server's folding ranges. These are window options,
+--- so they can only be set for the windows a buffer is currently displayed in —
+--- a buffer attached by attach_open_buffers below has none yet, and is covered
+--- by the BufWinEnter autocmd in M.setup instead.
+---@param bufnr integer
+local function enable_lsp_folding(bufnr)
+  for _, win in ipairs(vim.fn.win_findbuf(bufnr)) do
+    vim.api.nvim_set_option_value("foldmethod", "expr", { win = win })
+    vim.api.nvim_set_option_value("foldexpr", "v:lua.vim.lsp.foldexpr()", { win = win })
+    vim.api.nvim_set_option_value("foldlevel", 99, { win = win }) -- start with folds open
+  end
+end
+
+--- Attach a client to the matching buffers that were already open when it
+--- started. vim.lsp.start only attaches the buffer it was called for, and the
+--- FileType autocmd that would have attached the rest fired long ago — back
+--- when there was no server to attach to. Without this, restarting the server
+--- (or starting it from one of several open files) leaves the other buffers
+--- unattached until they are reloaded with :e.
+---@param client vim.lsp.Client
+local function attach_open_buffers(client)
+  local filetypes = {}
+  for _, filetype in ipairs(M.config.filetypes or {}) do
+    filetypes[filetype] = true
+  end
+
+  local root_dir = client.root_dir or (client.config or {}).root_dir
+  for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+    if
+      vim.api.nvim_buf_is_loaded(bufnr)
+      and vim.bo[bufnr].buftype == ""
+      and filetypes[vim.bo[bufnr].filetype]
+      and not vim.lsp.buf_is_attached(bufnr, client.id)
+      and is_under(vim.api.nvim_buf_get_name(bufnr), root_dir)
+    then
+      vim.lsp.buf_attach_client(bufnr, client.id)
+    end
+  end
+end
+
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", {}, M.defaults, opts or {})
 
@@ -100,6 +153,24 @@ function M.setup(opts)
       M.start(ev.buf)
     end,
     desc = "Start IntelliJ LSP server",
+  })
+
+  -- Folding is window-local, so a buffer attached while it was not displayed
+  -- (attach_open_buffers) only gets it once it reaches a window.
+  vim.api.nvim_create_autocmd("BufWinEnter", {
+    group = vim.api.nvim_create_augroup("IntellijServerFolding", { clear = true }),
+    callback = function(ev)
+      if (M.config.folding or {}).enabled == false then
+        return
+      end
+      for _, client in ipairs(vim.lsp.get_clients({ bufnr = ev.buf, name = "intellij-server" })) do
+        if client.server_capabilities.foldingRangeProvider then
+          enable_lsp_folding(ev.buf)
+          return
+        end
+      end
+    end,
+    desc = "Use LSP folding for intellij-server buffers entering a window",
   })
 
   -- Kill the full server process tree (launcher, jbr, maven) on exit
@@ -127,9 +198,7 @@ function M.setup(opts)
 
       local folding = M.config.folding or {}
       if folding.enabled ~= false and client.server_capabilities.foldingRangeProvider then
-        vim.wo[0][0].foldmethod = "expr"
-        vim.wo[0][0].foldexpr = "v:lua.vim.lsp.foldexpr()"
-        vim.wo[0][0].foldlevel = 99 -- start with folds open
+        enable_lsp_folding(args.buf)
       end
 
       local lens = M.config.code_lens or {}
@@ -138,6 +207,7 @@ function M.setup(opts)
         vim.lsp.codelens.enable(true, { bufnr = args.buf })
       end
 
+      attach_open_buffers(client)
       require("intellij-server.content-provider").attach_open_buffers(client.id)
     end,
     desc = "Enable inlay hints and LSP folding for intellij-server buffers",
