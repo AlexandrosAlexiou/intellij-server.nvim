@@ -7,7 +7,8 @@ Provides Java and Kotlin language support including code completion, diagnostics
 ## Requirements
 
 - Neovim ≥ 0.12
-- `curl` and `unzip` on PATH (for `:IntellijServerInstall`)
+- `curl` and `unzip` on PATH (for `:IntellijServerInstall`; on Windows the bundled `tar` is used instead of `unzip`)
+- macOS, Linux or Windows on x86_64 or ARM64 — every platform JetBrains publishes the server for
 - [nvim-dap](https://github.com/mfussenegger/nvim-dap) (optional, for debugging)
 
 ## Installation

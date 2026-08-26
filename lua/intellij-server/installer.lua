@@ -2,11 +2,23 @@ local M = {}
 
 local version = require("intellij-server.version")
 
+-- uname's machine string differs per OS for the same hardware: x86_64 on
+-- Linux/macOS but AMD64 on Windows, aarch64 on Linux but arm64 on macOS and
+-- Windows. Normalize to the two names used in version.platforms.
+local ARCH_ALIASES = {
+  x86_64 = "x64",
+  amd64 = "x64",
+  AMD64 = "x64",
+  aarch64 = "arm64",
+  arm64 = "arm64",
+  ARM64 = "arm64",
+}
+
 --- Detect the current platform key (e.g., "mac-aarch64").
 ---@return string?
 local function detect_platform()
   local os_name = vim.uv.os_uname().sysname
-  local arch = vim.uv.os_uname().machine
+  local arch = ARCH_ALIASES[vim.uv.os_uname().machine]
 
   for platform_key, info in pairs(version.platforms) do
     if os_name == info.os and arch == info.arch then
