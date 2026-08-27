@@ -53,3 +53,19 @@ end, { desc = "Open the streamed IntelliJ import/build log" })
 vim.api.nvim_create_user_command("IntellijServerLogs", function()
   require("intellij-server.process").show_logs()
 end, { desc = "Open the IntelliJ server log and Neovim's LSP log" })
+
+vim.api.nvim_create_user_command("IntellijServerRun", function(cmd_opts)
+  local main_class = cmd_opts.args ~= "" and cmd_opts.args or vim.fn.input("Main class: ")
+  if main_class == "" then
+    return
+  end
+  require("intellij-server.dap").run_main({ mainClass = main_class, noDebug = not cmd_opts.bang })
+end, {
+  nargs = "?",
+  bang = true,
+  desc = "Run a main class (! to debug it) — requires nvim-dap",
+})
+
+vim.api.nvim_create_user_command("IntellijServerAttach", function(cmd_opts)
+  require("intellij-server.dap").attach(cmd_opts.args)
+end, { nargs = "?", desc = "Attach the debugger to a JVM on a JDWP port (default 5005)" })

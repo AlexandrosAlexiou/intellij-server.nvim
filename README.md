@@ -128,7 +128,8 @@ require("intellij-server").setup({
     },
   },
 
-  -- nvim-dap debugger integration
+  -- nvim-dap debugger integration. Also turns on the server's Run/Debug code
+  -- lenses above main methods (initializationOptions.runMainCodeLens).
   dap = {
     enabled = true,  -- requires nvim-dap
   },
@@ -215,6 +216,8 @@ The inconsistent `settings.`/spaces in the Java key names are server-side quirks
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
+| `:IntellijServerRun [main.Class]` | Run a main class (`:IntellijServerRun!` debugs it) |
+| `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
 
 ## Features
 
@@ -241,7 +244,7 @@ Neovim's built-in LSP client with no configuration.
 | Semantic tokens | *automatic* — IntelliJ-quality highlighting layered over treesitter |
 | Inlay hints | enabled on attach by the plugin — `inlay_hints = { enabled = false }` to opt out, or toggle with `vim.lsp.inlay_hint.enable()` |
 | Folding range | wired on attach: `foldexpr = v:lua.vim.lsp.foldexpr()`, folds start open — `folding = { enabled = false }` to opt out; use `zc`/`zo`/`za` |
-| Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; `code_lens = { enabled = false }` to opt out |
+| Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods when nvim-dap is available; `code_lens = { enabled = false }` to opt out |
 | Call hierarchy | `vim.lsp.buf.incoming_calls()` / `vim.lsp.buf.outgoing_calls()` |
 | Type hierarchy | `vim.lsp.buf.typehierarchy("subtypes")` / `("supertypes")` |
 
@@ -375,22 +378,45 @@ The server supports `textDocument/inlineCompletion` (proposed LSP spec). The plu
 
 With [nvim-dap](https://github.com/mfussenegger/nvim-dap) installed, the plugin registers an `intellij` DAP adapter that communicates with the IntelliJ debug server:
 
-- **Launch**: Run a main class with debugging
-- **Attach**: Connect to a running JVM via JDWP (default port 5005)
+- **Run/Debug code lenses** above every `main` entry point, like the VS Code extension
+- **Launch**: run a main class, with or without the debugger
+- **Attach**: connect to a running JVM via JDWP
 
 The adapter sends `workspace/executeCommand("start_debug_server")` to the LSP, which returns a DAP port.
 
-Launch configurations support these properties (server 0.0.10+):
+#### Run and debug a main class
 
-| Property     | Type       | Description |
-|--------------|------------|-------------|
-| `mainClass`  | `string`   | Fully qualified main class to launch |
-| `args`       | `string[]` | Program arguments |
-| `env`        | `table`    | Extra environment variables for the launched process |
-| `javaExec`   | `string`   | Path to the `java` executable (default: project SDK) |
-| `modulePath` | `string[]` | JPMS module path override; resolved from the project model if empty |
-| `moduleName` | `string`   | JPMS module owning the main class, launched as `-m moduleName/mainClass`; resolved automatically if empty |
-| `console`    | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), or `externalTerminal` |
+The plugin asks the server for run code lenses (`initializationOptions.runMainCodeLens`),
+so `Run` and `Debug` lenses appear above every `main` method — trigger the one under
+the cursor with `vim.lsp.codelens.run()`. `:IntellijServerRun com.example.Main` runs a
+class by name, and `:IntellijServerRun!` debugs it instead.
+
+Before a session starts, whatever the configuration leaves out is resolved from the
+project model, the same way the VS Code extension resolves it:
+
+| Missing | Resolved via |
+|---------|--------------|
+| `file` | `intellij.java.resolveClassDocument` |
+| `classPaths` (plus `modulePaths`, `moduleName`) | `intellij.java.resolveClasspath` |
+| `cwd` | `intellij.java.resolveWorkingDirectory` |
+| `javaExec` | `intellij.java.resolveJavaExecutable` |
+
+So `mainClass` on its own is enough. Launch configurations support:
+
+| Property      | Type       | Description |
+|---------------|------------|-------------|
+| `mainClass`   | `string`   | Fully qualified main class to launch. Required. |
+| `file`        | `string`   | Source file declaring it. Resolved from `mainClass`; set it to disambiguate when several files declare the same fully qualified name |
+| `args`        | `string[]` | Program arguments |
+| `vmArgs`      | `string[]` | JVM arguments, e.g. `{ "-Xmx512m", "-ea" }` |
+| `env`         | `table`    | Extra environment variables for the launched process |
+| `cwd`         | `string`   | Working directory |
+| `javaExec`    | `string`   | Path to the `java` executable (default: project SDK) |
+| `classPaths`  | `string[]` | Runtime classpath override |
+| `modulePaths` | `string[]` | JPMS module path override; resolved from the project model if empty |
+| `moduleName`  | `string`   | JPMS module owning the main class, launched as `-m moduleName/mainClass`; resolved automatically if empty |
+| `noDebug`     | `boolean`  | Run without attaching the debugger |
+| `console`     | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), or `externalTerminal` |
 
 With `integratedTerminal` (the default) the adapter sends a DAP `runInTerminal`
 reverse request, which nvim-dap answers by opening a terminal buffer for the
@@ -405,10 +431,31 @@ table.insert(require("dap").configurations.java, {
   name = "Run MyApp",
   mainClass = "com.example.MyApp",
   args = { "--port", "8080" },
+  vmArgs = { "-Xmx512m" },
   env = { MY_FLAG = "1" },
   console = "internalConsole",
 })
 ```
+
+#### Attach to a running JVM
+
+Start the JVM with JDWP enabled:
+
+```text
+-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
+```
+
+Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration.
+
+#### Limitations (server 0.0.10)
+
+- **Tests cannot be run or debugged.** The server exposes no test discovery or
+  test-run support at all — the same limitation the VS Code extension has.
+- **Attach is local only.** The debugger always connects to `127.0.0.1`; the
+  `hostName` and `timeout` fields the VS Code documentation lists are declared
+  in the extension's schema but never reach the server.
+- Execution is not delegated to Maven or Gradle, so launch parameters set in a
+  build script do not apply.
 
 ### File Templates
 

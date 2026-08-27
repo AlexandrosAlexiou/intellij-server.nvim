@@ -337,6 +337,15 @@ function M.start(bufnr)
     init_options.disableRocksDBWriteAheadLog = M.config.disable_rocksdb_wal
   end
 
+  -- Ask the server for the Run/Debug code lenses above every main entry point.
+  -- They carry an `intellij_debugger.runMain` command, which we dispatch to
+  -- nvim-dap through the client-side `commands` table below.
+  local lsp_commands = nil
+  if (M.config.dap or {}).enabled ~= false and pcall(require, "dap") then
+    init_options.runMainCodeLens = true
+    lsp_commands = require("intellij-server.dap").lsp_commands()
+  end
+
   local handlers = {
     ["workspace/configuration"] = configuration_handler,
     -- The completion apply command positions the caret via showDocument;
@@ -362,6 +371,7 @@ function M.start(bufnr)
     detached = true,
     cmd_env = server.build_env(server_dir, data_dir, M.config.java_home, M.config.jvm_args),
     cmd_cwd = root_dir,
+    commands = lsp_commands,
     root_dir = root_dir,
     capabilities = capabilities,
     settings = M.config.settings,
