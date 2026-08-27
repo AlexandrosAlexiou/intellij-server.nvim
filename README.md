@@ -397,10 +397,29 @@ The adapter sends `workspace/executeCommand("start_debug_server")` to the LSP, w
 
 #### Run and debug a main class
 
+Four ways to start a program, all equivalent:
+
+| | Run | Debug |
+|---|---|---|
+| Code lens above `main` | `Run` | `Debug` |
+| Command | `:IntellijServerRun com.example.Main` | `:IntellijServerRun!` |
+| nvim-dap | `dap.continue()` → `Launch main class` | same, with breakpoints set |
+| Lua | `run_main({ mainClass = …, noDebug = true })` | drop `noDebug` |
+
 The plugin asks the server for run code lenses (`initializationOptions.runMainCodeLens`),
-so `Run` and `Debug` lenses appear above every `main` method — trigger the one under
-the cursor with `vim.lsp.codelens.run()`. `:IntellijServerRun com.example.Main` runs a
-class by name, and `:IntellijServerRun!` debugs it instead.
+so `Run` and `Debug` lenses appear above every `main` method:
+
+Put the cursor on the `main` line itself (any column — the lens line cannot hold a
+cursor) and call `vim.lsp.codelens.run()`; because the line carries two lenses,
+Neovim asks which one to use. Off that line it reports `No codelens at current line`.
+Lenses only appear once the project import has finished — watch `:IntellijServerBuildLog`.
+
+```lua
+vim.keymap.set("n", "<leader>cl", vim.lsp.codelens.run, { desc = "Run code lens" })
+```
+
+`:IntellijServerRun com.example.Main` runs a class by name from anywhere in the
+file, and `:IntellijServerRun!` debugs it instead.
 
 Anything after the class name is passed to `main(String[])`, quoted like a shell:
 
@@ -482,6 +501,30 @@ end)
 vim.keymap.set("n", "<leader>ra", function() ij.attach(5005) end)
 ```
 
+#### Breakpoints and stepping
+
+A debug session only stops where you tell it to: launched with no breakpoints set,
+a program runs to completion and `Debug` looks no different from `Run`. Breakpoints
+are nvim-dap's, not the plugin's:
+
+```lua
+local dap = require("dap")
+vim.keymap.set("n", "<leader>db", dap.toggle_breakpoint)
+vim.keymap.set("n", "<leader>dc", dap.continue)
+vim.keymap.set("n", "<leader>do", dap.step_over)
+vim.keymap.set("n", "<leader>di", dap.step_into)
+vim.keymap.set("n", "<leader>dr", dap.repl.open)
+```
+
+They can be set before launching or while the program runs — anything not yet
+executed is still hit. Conditional and exception breakpoints work too, the latter
+being the quickest way to find a throw site:
+
+```lua
+dap.set_breakpoint(vim.fn.input("Condition: "))  -- e.g. i == 42
+dap.set_exception_breakpoints({ "uncaught" })
+```
+
 #### Attach to a running JVM
 
 Start the JVM with JDWP enabled:
@@ -495,7 +538,23 @@ Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration.
 #### Limitations (server 0.0.10)
 
 - **Tests cannot be run or debugged.** The server exposes no test discovery or
-  test-run support at all — the same limitation the VS Code extension has.
+  test-run support at all — the same limitation the VS Code extension has. Until
+  it does, run the test under the build tool with JDWP enabled and attach:
+
+  ```bash
+  mvnDebug test -Dtest=MyTest              # Maven, listens on 5005, suspended
+  gradle test --tests MyTest --debug-jvm   # Gradle, listens on 5005, suspended
+  ```
+
+  Then `:IntellijServerAttach 5005`. Both suspend until the debugger connects, so
+  set breakpoints first. With plain `mvn`, pass the flag yourself — and keep the
+  test in the same JVM, or the flag lands on the wrong one:
+
+  ```bash
+  mvn test -Dtest=MyTest -DforkCount=0 \
+    -DargLine="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005"
+  ```
+
 - **Attach is local only.** The debugger always connects to `127.0.0.1`; the
   `hostName` and `timeout` fields the VS Code documentation lists are declared
   in the extension's schema but never reach the server.
