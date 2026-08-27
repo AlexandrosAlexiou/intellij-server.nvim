@@ -17,7 +17,11 @@ local M = {}
 ---@field settings table? LSP workspace settings.
 ---@field inlay_hints { enabled?: boolean }? Enable inlay hints on attach (default: on).
 ---@field folding { enabled?: boolean }? Use LSP folding ranges for folds (default: on).
----@field code_lens { enabled?: boolean }? Refresh and display code lenses (default: on).
+---@field code_lens { enabled?: boolean, icons?: table<string, string>|false, align?: boolean }?
+---   Refresh and display code lenses (default: on). The server's titles carry VS Code
+---   codicon markup ("$(play) Run"): `icons` maps a codicon name to the text to show
+---   instead, anything unmapped is dropped. `align = false` keeps Neovim's placement,
+---   which indents each lens to the identifier it belongs to instead of the code.
 ---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
 ---@field inline_completion { enabled?: boolean, keymaps?: { show?: string, accept?: string, dismiss?: string } }?
 ---@field dap { enabled?: boolean }?
@@ -228,6 +232,8 @@ function M.setup(opts)
     require("intellij-server.inline-completion").setup_keymaps(ic.keymaps)
   end
 
+  require("intellij-server.code-lens").setup(M.config.code_lens)
+
   local dap_cfg = M.config.dap or {}
   if dap_cfg.enabled ~= false and pcall(require, "dap") then
     require("intellij-server.dap").setup()
@@ -381,6 +387,9 @@ function M.start(bufnr)
     -- otherwise broken in Neovim. See lua/intellij-server/completion.lua.
     on_init = function(client)
       require("intellij-server.completion").attach(client)
+      if (M.config.code_lens or {}).enabled ~= false then
+        require("intellij-server.code-lens").attach(client)
+      end
       if (M.config.navigation or {}).enabled ~= false then
         require("intellij-server.navigation").attach(client)
       end

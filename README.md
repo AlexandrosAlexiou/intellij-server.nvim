@@ -113,7 +113,17 @@ require("intellij-server").setup({
   folding = { enabled = true },
 
   -- Code lens: auto-refresh on attach and edits; run with vim.lsp.codelens.run()
-  code_lens = { enabled = true },
+  code_lens = {
+    enabled = true,
+    -- The server titles its lenses the VS Code way, with codicon markup:
+    -- "$(play) Run". Map a codicon name to the text to show instead; anything
+    -- left unmapped is dropped, so titles read "Run" and "Debug" by default.
+    icons = { play = "▶", debug = "" },
+    -- Lenses are anchored to the identifier they belong to, which Neovim
+    -- indents the virtual line to. Draw them at the indent of the code
+    -- instead; false keeps Neovim's placement.
+    align = true,
+  },
 
   -- Package navigation: open package definitions as a directory listing
   navigation = { enabled = true },
@@ -244,7 +254,7 @@ Neovim's built-in LSP client with no configuration.
 | Semantic tokens | *automatic* — IntelliJ-quality highlighting layered over treesitter |
 | Inlay hints | enabled on attach by the plugin — `inlay_hints = { enabled = false }` to opt out, or toggle with `vim.lsp.inlay_hint.enable()` |
 | Folding range | wired on attach: `foldexpr = v:lua.vim.lsp.foldexpr()`, folds start open — `folding = { enabled = false }` to opt out; use `zc`/`zo`/`za` |
-| Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods when nvim-dap is available; `code_lens = { enabled = false }` to opt out |
+| Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods when nvim-dap is available. Titles are stripped of VS Code codicon markup and aligned with the code they sit above (`icons`, `align`); `code_lens = { enabled = false }` to opt out |
 | Call hierarchy | `vim.lsp.buf.incoming_calls()` / `vim.lsp.buf.outgoing_calls()` |
 | Type hierarchy | `vim.lsp.buf.typehierarchy("subtypes")` / `("supertypes")` |
 
