@@ -12,11 +12,29 @@ local M = {}
 local wrapped = "_intellij_code_lens_wrapped"
 
 --- @class IntellijServerCodeLensOpts
---- @field icons table<string, string>|false? Codicon name -> replacement text
+--- @field icons table<string, string>|false? Codicon name -> replacement text.
+--- Defaults to Nerd Font glyphs; `false` (or an empty table) shows text only.
 --- @field align boolean? Align lenses with the line's indent (default: true)
+
+--- Nerd Font stand-ins for the codicons the server asks for: nf-fa-play and
+--- nf-fa-bug. Set `code_lens.icons` to replace them, or to `false` for text
+--- only ("Run", "Debug").
+---@type table<string, string>
+local DEFAULT_ICONS = {
+  play = "\u{f04b}",
+  debug = "\u{f188}",
+}
 
 ---@type IntellijServerCodeLensOpts
 local opts = {}
+
+--- @return table<string, string>|false
+local function icons()
+  if opts.icons == nil then
+    return DEFAULT_ICONS
+  end
+  return opts.icons
+end
 
 --- Replace VS Code codicon markup with the configured text, or drop it.
 ---@param title string
@@ -24,7 +42,8 @@ local opts = {}
 local function retitle(title)
   return (
     title:gsub("%$%(([%w_.-]+)%)%s*", function(icon)
-      local replacement = opts.icons and opts.icons[icon]
+      local set = icons()
+      local replacement = set and set[icon]
       return replacement and (replacement .. " ") or ""
     end)
   )
