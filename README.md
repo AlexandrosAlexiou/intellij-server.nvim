@@ -440,7 +440,22 @@ So `mainClass` on its own is enough. Launch configurations support:
 
 With `integratedTerminal` (the default) the adapter sends a DAP `runInTerminal`
 reverse request, which nvim-dap answers by opening a terminal buffer for the
-program's stdio. Use `internalConsole` to keep output in the DAP REPL instead.
+program's stdio. It is a real terminal, so a program that reads `System.in`
+can be typed into while the debugger is attached.
+
+`internalConsole` keeps output in the DAP REPL instead, but DAP gives that mode
+no stdin channel — a program that waits for input hangs. `externalTerminal`
+needs a terminal configured, otherwise nvim-dap warns and falls back to the
+integrated one:
+
+```lua
+require("dap").defaults.fallback.external_terminal = {
+  command = "/opt/homebrew/bin/wezterm",
+  args = { "start", "--" },
+}
+-- where the integrated terminal opens
+require("dap").defaults.intellij.terminal_win_cmd = "belowright 15new"
+```
 
 Example custom configuration:
 
@@ -455,6 +470,16 @@ table.insert(require("dap").configurations.java, {
   env = { MY_FLAG = "1" },
   console = "internalConsole",
 })
+```
+
+The same launches are available from Lua, for keymaps:
+
+```lua
+local ij = require("intellij-server.dap")
+vim.keymap.set("n", "<leader>rr", function()
+  ij.run_main({ mainClass = "com.example.Main", args = { "--port", "8080" } })
+end)
+vim.keymap.set("n", "<leader>ra", function() ij.attach(5005) end)
 ```
 
 #### Attach to a running JVM
@@ -476,6 +501,8 @@ Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration.
   in the extension's schema but never reach the server.
 - Execution is not delegated to Maven or Gradle, so launch parameters set in a
   build script do not apply.
+- The Run/Debug lenses carry only the main class, so they always launch a
+  program bare. Use `:IntellijServerRun` or a configuration to pass arguments.
 
 ### File Templates
 
@@ -528,6 +555,11 @@ These persist across reboots (unlike the default temp directory behavior). To cl
 The plugin launches the IntelliJ LSP server (`server/bin/intellij-server --stdio`) which is a headless IntelliJ IDEA
 instance stripped for language server use. It communicates over stdin/stdout using the standard LSP protocol. The server
 bundles its own JBR (JetBrains Runtime), no external JDK is required to run the server itself.
+
+The server is started detached, so it leads its own process group: the JVM and
+Maven or Gradle processes it spawns share that group and are killed with it on
+`:IntellijServerStop`, `:IntellijServerRestart` and `:IntellijServerClean`, even
+after being reparented to PID 1.
 
 The server binary is downloaded from JetBrains CDN. The plugin vendors binaries from the
 [JetBrains IntelliJ LSP VS Code extension](https://marketplace.visualstudio.com/items?itemName=JetBrains.intellij-server):
