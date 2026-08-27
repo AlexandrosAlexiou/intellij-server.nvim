@@ -85,7 +85,7 @@ function M.build_cmd(server_path)
     return args
   end
   if vim.fn.executable("setsid") == 1 then
-    return vim.list_extend({ "setsid" }, args)
+    return vim.list_extend({ "setsid", "-w" }, args)
   end
   if vim.fn.executable("perl") == 1 then
     return vim.list_extend({ "perl", "-e", "setpgrp(0,0); exec @ARGV or die" }, args)
