@@ -1,7 +1,8 @@
 --- Process and cache management.
---- On Unix the server runs as a process-group leader (see server.build_cmd),
---- so all its descendants (jbr JVM, Maven imports) share its PGID and can be
---- killed as a group, even after being reparented to PID 1.
+--- On Unix the server runs as a process-group leader (the client is started
+--- with `detached = true`, so libuv setsid()s it), meaning all its descendants
+--- (jbr JVM, Maven imports) share its PGID and can be killed as a group, even
+--- after being reparented to PID 1.
 --- On Windows, taskkill /T kills the process tree instead.
 local M = {}
 
@@ -17,17 +18,43 @@ function M.kill_tree(pid)
   vim.fn.system(("sleep 0.3; /bin/kill -KILL -- -%d 2>/dev/null"):format(pid))
 end
 
+--- PIDs of the server processes we spawned: our direct children running the
+--- server binary. Neovim used to expose this as client.rpc.pid(), but 0.12
+--- dropped it from vim.lsp.rpc.PublicClient, so look it up ourselves.
+--- The server is detached, hence its own group leader, so each PID is a PGID.
+---@return integer[]
+local function server_pids()
+  local pids = {}
+  local ok, children = pcall(vim.api.nvim_get_proc_children, vim.fn.getpid())
+  if not ok then
+    return pids
+  end
+  for _, pid in ipairs(children) do
+    local info = vim.api.nvim_get_proc(pid)
+    -- Linux truncates comm to 15 chars, which "intellij-server" just fits.
+    if type(info) == "table" and info.name and info.name:find("intellij%-server") then
+      table.insert(pids, pid)
+    end
+  end
+  return pids
+end
+
 --- Kill process groups of all running intellij-server clients.
 function M.kill_all_clients()
+  local pids = server_pids()
+
   for _, client in ipairs(vim.lsp.get_clients({ name = "intellij-server" })) do
-    -- rpc.pid is not part of the public vim.lsp.rpc.PublicClient type,
-    -- but stdio transports expose it at runtime.
+    -- rpc.pid() only exists on Neovim < 0.12; server_pids() covers the rest.
     ---@diagnostic disable-next-line: undefined-field
     local pid = client.rpc and client.rpc.pid and client.rpc.pid()
-    if pid then
-      M.kill_tree(pid)
+    if pid and not vim.tbl_contains(pids, pid) then
+      table.insert(pids, pid)
     end
     client:stop(true)
+  end
+
+  for _, pid in ipairs(pids) do
+    M.kill_tree(pid)
   end
 end
 

@@ -52,10 +52,15 @@ function M.find_binary()
 end
 
 --- Build the command to launch the LSP server.
---- On Unix the launcher spawns child processes (jbr JVM, Maven imports) — we
---- run it as a process-group leader so the whole group can be killed on exit,
---- catching even children reparented to PID 1. Uses `setsid` when available
---- (Linux/util-linux), falling back to `perl` (always present on macOS).
+--- On Unix the launcher spawns child processes (jbr JVM, Maven imports) — they
+--- must share one process group so the whole group can be killed on exit, even
+--- after being reparented to PID 1. No wrapper is needed for that: we start the
+--- client with `detached = true` (see intellij-server.start) and libuv calls
+--- setsid() in the child, making the server itself the session/group leader
+--- (PGID == PID == the pid process.kill_tree receives).
+--- Do NOT wrap this in `setsid`: it is already a group leader by then, so
+--- setsid(1) forks and its parent exits immediately, and Neovim tears down the
+--- connection to a server that is still running.
 --- On Windows there are no process groups; process.kill_tree uses taskkill /T.
 --- Note: the native launcher reads bin/intellij-server.vmoptions itself —
 --- do NOT pass vmoptions as CLI arguments.
@@ -81,15 +86,6 @@ function M.build_cmd(server_path)
     table.insert(args, eula)
   end
 
-  if vim.fn.has("win32") == 1 then
-    return args
-  end
-  if vim.fn.executable("setsid") == 1 then
-    return vim.list_extend({ "setsid" }, args)
-  end
-  if vim.fn.executable("perl") == 1 then
-    return vim.list_extend({ "perl", "-e", "setpgrp(0,0); exec @ARGV or die" }, args)
-  end
   return args
 end
 

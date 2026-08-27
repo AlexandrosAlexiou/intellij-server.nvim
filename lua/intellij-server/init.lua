@@ -356,6 +356,10 @@ function M.start(bufnr)
   vim.lsp.start({
     name = "intellij-server",
     cmd = cmd,
+    -- libuv setsid()s the child, so the server is its own session/process-group
+    -- leader (PGID == PID) and process.kill_tree can take out its whole tree.
+    -- This is Neovim's default on Unix; pinned here because we rely on it.
+    detached = true,
     cmd_env = server.build_env(server_dir, data_dir, M.config.java_home, M.config.jvm_args),
     cmd_cwd = root_dir,
     root_dir = root_dir,
