@@ -55,15 +55,19 @@ vim.api.nvim_create_user_command("IntellijServerLogs", function()
 end, { desc = "Open the IntelliJ server log and Neovim's LSP log" })
 
 vim.api.nvim_create_user_command("IntellijServerRun", function(cmd_opts)
-  local main_class = cmd_opts.args ~= "" and cmd_opts.args or vim.fn.input("Main class: ")
-  if main_class == "" then
-    return
+  local dap = require("intellij-server.dap")
+  local main_class, args = dap.parse_run(cmd_opts.args)
+  if not main_class then
+    main_class = vim.fn.input("Main class: ")
+    if main_class == "" then
+      return
+    end
   end
-  require("intellij-server.dap").run_main({ mainClass = main_class, noDebug = not cmd_opts.bang })
+  dap.run_main({ mainClass = main_class, args = args, noDebug = not cmd_opts.bang })
 end, {
-  nargs = "?",
+  nargs = "*",
   bang = true,
-  desc = "Run a main class (! to debug it) — requires nvim-dap",
+  desc = "Run a main class with optional arguments (! to debug it) — requires nvim-dap",
 })
 
 vim.api.nvim_create_user_command("IntellijServerAttach", function(cmd_opts)

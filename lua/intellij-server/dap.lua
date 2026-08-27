@@ -206,9 +206,49 @@ function M.enrich_config(config, on_config)
   end)
 end
 
+--- Split `:IntellijServerRun` input into the main class and the program
+--- arguments that follow it. Arguments are quoted like a shell, so one
+--- containing spaces can be written "like this" or 'like this'.
+---@param line string
+---@return string? main_class, string[] args
+function M.parse_run(line)
+  local words, word, quote = {}, nil, nil
+
+  local i = 1
+  while i <= #line do
+    local char = line:sub(i, i)
+    if char == "\\" and i < #line then
+      i = i + 1
+      word = (word or "") .. line:sub(i, i)
+    elseif quote then
+      if char == quote then
+        quote = nil
+      else
+        word = word .. char
+      end
+    elseif char == '"' or char == "'" then
+      quote, word = char, word or ""
+    elseif char:match("%s") then
+      if word then
+        table.insert(words, word)
+        word = nil
+      end
+    else
+      word = (word or "") .. char
+    end
+    i = i + 1
+  end
+  if word then
+    table.insert(words, word)
+  end
+
+  local main_class = table.remove(words, 1)
+  return main_class, words
+end
+
 --- Run or debug a main entry point. Handles the server's code lens command;
 --- also usable directly, e.g. from a keymap.
----@param args { mainClass: string, uri: string?, noDebug: boolean? }
+---@param args { mainClass: string, uri: string?, noDebug: boolean?, args: string[]?, vmArgs: string[]? }
 function M.run_main(args)
   if not has_dap then
     notify("nvim-dap is required to run main classes")
@@ -228,6 +268,8 @@ function M.run_main(args)
     noDebug = args.noDebug or false,
     -- Disambiguates same-named main classes; consumed by enrich_config.
     file = args.uri and vim.uri_to_fname(args.uri) or nil,
+    args = args.args,
+    vmArgs = args.vmArgs,
   })
 end
 

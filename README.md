@@ -227,7 +227,7 @@ The inconsistent `settings.`/spaces in the Java key names are server-side quirks
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
-| `:IntellijServerRun [main.Class]` | Run a main class (`:IntellijServerRun!` debugs it) |
+| `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
 | `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
 
 ## Features
@@ -401,6 +401,15 @@ The plugin asks the server for run code lenses (`initializationOptions.runMainCo
 so `Run` and `Debug` lenses appear above every `main` method — trigger the one under
 the cursor with `vim.lsp.codelens.run()`. `:IntellijServerRun com.example.Main` runs a
 class by name, and `:IntellijServerRun!` debugs it instead.
+
+Anything after the class name is passed to `main(String[])`, quoted like a shell:
+
+```vim
+:IntellijServerRun com.example.Main --port 8080 --name "two words"
+```
+
+For JVM arguments, environment variables or a working directory, use a nvim-dap
+configuration (below) — those are per-program settings worth keeping around.
 
 Before a session starts, whatever the configuration leaves out is resolved from the
 project model, the same way the VS Code extension resolves it:
