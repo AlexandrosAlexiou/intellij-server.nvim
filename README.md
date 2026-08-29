@@ -45,7 +45,7 @@ Run `:IntellijServerInstall` to download the server binary.
 ## Configuration
 
 The plugin works with no configuration — `opts = {}` (or `require("intellij-server").setup()`)
-attaches to Java and Kotlin files and starts the server on the nearest project root.
+attaches to Java and Kotlin files and starts the server on the working directory.
 
 ```lua
 require("intellij-server").setup({

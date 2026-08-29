@@ -20,12 +20,18 @@ require("intellij-server").setup({
   -- OutOfMemoryError (see docs/troubleshooting.md)
   jvm_args = { "-Xmx8g" },
 
-  -- Files/directories that mark the project root
+  -- The working directory is the project root; these only matter for files
+  -- opened from outside it. See "Project root" below.
   root_markers = {
     "pom.xml", "build.gradle", "build.gradle.kts",
     "settings.gradle", "settings.gradle.kts",
     "WORKSPACE", "WORKSPACE.bazel", "BUILD", ".git",
   },
+
+  -- Pin the root, bypassing cwd and detection (default: nil). Either a path or
+  -- a function(bufnr) returning one; returning nil falls back to the default
+  -- resolution, so you can pin just the projects that need it.
+  root_dir = nil,
 
   -- Start automatically on matching filetypes (default: true)
   autostart = true,
@@ -128,6 +134,27 @@ require("intellij-server").setup({
   },
 })
 ```
+
+## Project root
+
+One server runs per root, and a buffer joins an existing server only when its
+root resolves to the same directory — so a wrong root shows up as a second
+server importing part of your project on its own.
+
+The root is the **working directory** whenever the file is inside it. You `cd`
+into a project to work on it, so this states intent rather than guessing at it,
+and every buffer in the session agrees on it. It is the window's cwd, so `:lcd`
+and `:tcd` scope it per split or per tab.
+
+For files opened from outside the cwd — a grep hit in another project, a
+dependency's source — the root is the topmost directory containing a build or
+project marker (`pom.xml`, `settings.gradle`, `.idea`, `*.iml`, …), searching up
+to the top of the enclosing checkout and no further. Topmost, so a module in a
+multimodule build resolves to the build root; bounded by the checkout, so one
+stray marker above it cannot capture everything beneath. Failing that, the
+nearest `root_markers` directory, then the file's own directory.
+
+`root_dir` overrides all of it.
 
 ## Inlay hint settings
 

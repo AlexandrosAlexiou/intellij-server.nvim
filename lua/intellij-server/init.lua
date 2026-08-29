@@ -11,6 +11,7 @@ local M = {}
 ---@field jvm_args string[]? Extra JVM options for the server, e.g. { "-Xmx8g" } to raise the heap.
 ---@field filetypes string[]? File types to attach to.
 ---@field root_markers string[]? Files/dirs used for the nearest-root fallback.
+---@field root_dir (string|fun(bufnr: integer): string?)? Pin the project root, bypassing cwd and marker detection.
 ---@field autostart boolean? Start the LSP automatically when opening a matching file.
 ---@field on_attach fun(client: vim.lsp.Client, bufnr: integer)? Callback after attaching.
 ---@field capabilities table? Additional LSP capabilities to merge.
@@ -33,6 +34,7 @@ M.defaults = {
   java_home = nil,
   jvm_args = nil,
   filetypes = { "java", "kotlin" },
+  root_dir = nil,
   projects = nil,
   disable_rocksdb_wal = nil,
   root_markers = {
@@ -89,19 +91,6 @@ M.config = {}
 
 --- Setup the plugin.
 ---@param opts IntellijServerConfig?
---- Is `path` inside `root`?
----@param path string
----@param root string?
----@return boolean
-local function is_under(path, root)
-  if not root or root == "" or path == "" then
-    return false
-  end
-  path = vim.fs.normalize(path)
-  root = vim.fs.normalize(root):gsub("/$", "")
-  return path == root or vim.startswith(path, root .. "/")
-end
-
 --- Point 'foldexpr' at the server's folding ranges. These are window options,
 --- so they can only be set for the windows a buffer is currently displayed in —
 --- a buffer attached by attach_open_buffers below has none yet, and is covered
@@ -135,7 +124,7 @@ local function attach_open_buffers(client)
       and vim.bo[bufnr].buftype == ""
       and filetypes[vim.bo[bufnr].filetype]
       and not vim.lsp.buf_is_attached(bufnr, client.id)
-      and is_under(vim.api.nvim_buf_get_name(bufnr), root_dir)
+      and require("intellij-server.server").is_under(vim.api.nvim_buf_get_name(bufnr), root_dir)
     then
       vim.lsp.buf_attach_client(bufnr, client.id)
     end
@@ -278,7 +267,7 @@ function M.start(bufnr)
   end
 
   local server_dir = vim.fn.fnamemodify(server_bin, ":h:h") -- server/ directory
-  local root_dir = server.find_root(bufnr, M.config.root_markers)
+  local root_dir = server.resolve_root(bufnr, M.config)
 
   local data_dir = process.data_dir()
   vim.fn.mkdir(data_dir .. "/config", "p")

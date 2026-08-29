@@ -141,7 +141,22 @@ function M.build_env(server_dir, data_dir, java_home, jvm_args)
   }
 end
 
-local build_markers = {
+--- Is `path` inside `root`?
+---@param path string
+---@param root string?
+---@return boolean
+function M.is_under(path, root)
+  if not root or root == "" or path == "" then
+    return false
+  end
+  path = vim.fs.normalize(path)
+  root = vim.fs.normalize(root):gsub("/$", "")
+  return path == root or vim.startswith(path, root .. "/")
+end
+
+--- One marker per project type the server can import. ".idea" and "*.iml"
+--- cover JPS, whose roots carry no build file.
+local project_markers = {
   "pom.xml",
   "build.gradle",
   "build.gradle.kts",
@@ -149,11 +164,32 @@ local build_markers = {
   "settings.gradle.kts",
   "WORKSPACE",
   "WORKSPACE.bazel",
+  ".idea",
+  "*.iml",
 }
 
---- Find the project root for a buffer.
---- For multimodule projects this must be the TOPMOST directory containing a
---- build marker, not the nearest one (which vim.fs.root would return).
+--- Directories marking the top of a checkout. Tested as directories, never as
+--- files: a submodule and a linked worktree carry ".git" as a file, and the
+--- walk is meant to climb out of those into the repository that owns them.
+local boundary_markers = { ".git", ".hg", ".svn", ".jj" }
+
+--- Does `dir` contain `marker`? A marker names a file, a directory or a glob,
+--- and each needs its own test.
+---@param dir string
+---@param marker string
+---@return boolean
+local function has_marker(dir, marker)
+  local path = dir .. "/" .. marker
+  if marker:find("[*?%[]") then
+    return #vim.fn.glob(path, true, true) > 0
+  end
+  return vim.fn.filereadable(path) == 1 or vim.fn.isdirectory(path) == 1
+end
+
+--- Find the project root for a buffer that is outside the working directory.
+--- The TOPMOST project marker wins, so a module inside a multimodule build
+--- resolves to the build root; the walk stops at the top of the enclosing
+--- checkout, so one stray marker above it cannot capture everything beneath.
 ---@param bufnr integer
 ---@param fallback_markers string[] Markers for the nearest-root fallback.
 ---@return string
@@ -163,10 +199,15 @@ function M.find_root(bufnr, fallback_markers)
   local dir = vim.fn.fnamemodify(buf_path, ":h")
 
   while dir and dir ~= "" do
-    for _, marker in ipairs(build_markers) do
-      if vim.fn.filereadable(dir .. "/" .. marker) == 1 then
+    for _, marker in ipairs(project_markers) do
+      if has_marker(dir, marker) then
         root_dir = dir
         break
+      end
+    end
+    for _, marker in ipairs(boundary_markers) do
+      if vim.fn.isdirectory(dir .. "/" .. marker) == 1 then
+        return root_dir or vim.fs.root(bufnr, fallback_markers) or dir
       end
     end
     local parent = vim.fn.fnamemodify(dir, ":h")
@@ -177,6 +218,37 @@ function M.find_root(bufnr, fallback_markers)
   end
 
   return root_dir or vim.fs.root(bufnr, fallback_markers) or vim.fn.fnamemodify(buf_path, ":h")
+end
+
+--- Resolve the project root for a buffer: `root_dir` if set, else the working
+--- directory when the file is inside it, else the marker search.
+---
+--- The cwd wins because you cd into a project to work on it -- it states intent
+--- instead of inferring it, and every buffer in the session agrees on it, which
+--- is what keeps reuse_client matching one server to the whole project. It is
+--- the window's cwd, so :lcd and :tcd scope it per split or per tab.
+---@param bufnr integer
+---@param config IntellijServerConfig
+---@return string
+function M.resolve_root(bufnr, config)
+  local root_dir = config.root_dir
+  if type(root_dir) == "function" then
+    root_dir = root_dir(bufnr)
+  end
+  if type(root_dir) == "string" and root_dir ~= "" then
+    -- normalize expands ~ and strips the trailing slash, so the result
+    -- compares equal to a detected root in reuse_client.
+    return vim.fs.normalize(vim.fn.fnamemodify(root_dir, ":p"))
+  end
+
+  -- Only when the file is inside it: a buffer opened from elsewhere would
+  -- otherwise be handed a root it has nothing to do with.
+  local cwd = vim.fs.normalize(vim.fn.getcwd())
+  if M.is_under(vim.api.nvim_buf_get_name(bufnr), cwd) then
+    return cwd
+  end
+
+  return M.find_root(bufnr, config.root_markers)
 end
 
 return M
