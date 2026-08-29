@@ -142,6 +142,12 @@ local function attach_open_buffers(client)
   end
 end
 
+---@param client vim.lsp.Client
+local function attach_all_buffers(client)
+  attach_open_buffers(client)
+  require("intellij-server.content-provider").attach_open_buffers(client.id)
+end
+
 function M.setup(opts)
   M.config = vim.tbl_deep_extend("force", {}, M.defaults, opts or {})
 
@@ -212,9 +218,6 @@ function M.setup(opts)
         -- enable() auto-refreshes on buffer changes.
         vim.lsp.codelens.enable(true, { bufnr = args.buf })
       end
-
-      attach_open_buffers(client)
-      require("intellij-server.content-provider").attach_open_buffers(client.id)
     end,
     desc = "Enable inlay hints and LSP folding for intellij-server buffers",
   })
@@ -393,6 +396,10 @@ function M.start(bufnr)
       if (M.config.navigation or {}).enabled ~= false then
         require("intellij-server.navigation").attach(client)
       end
+      -- Buffers attached here are not in Neovim's own post-init reattach set
+      -- (it is snapshotted before on_init runs), so each gets exactly one
+      -- didOpen, and LspAttach fires for them outside any autocmd nesting.
+      attach_all_buffers(client)
     end,
     on_attach = M.config.on_attach,
     init_options = init_options,
