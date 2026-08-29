@@ -20,6 +20,13 @@ require("intellij-server").setup({
   -- OutOfMemoryError (see docs/troubleshooting.md)
   jvm_args = { "-Xmx8g" },
 
+  -- JDK that runs the server process itself (default: nil). Resolution:
+  -- this value > $JAVA_HOME > `java` on PATH > the bundled JBR.
+  -- NOTE: this does NOT choose the JDK your project compiles/resolves
+  -- against — that is the project SDK, resolved server-side from
+  -- .idea/misc.xml.
+  java_home = "/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home",
+
   -- The working directory is the project root; these only matter for files
   -- opened from outside it. See "Project root" below.
   root_markers = {
