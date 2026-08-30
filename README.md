@@ -70,7 +70,7 @@ completion, the build log — is documented in **[docs/configuration.md](docs/co
 | `:IntellijServerStart` | Start/attach the server for the current buffer |
 | `:IntellijServerStop` | Stop all running server instances |
 | `:IntellijServerRestart` | Restart the server |
-| `:IntellijServerClean` | Clean indexes/caches and restart |
+| `:IntellijServerClean` | Clean the current project's caches and restart |
 | `:IntellijServerVersion` | Show installed version info |
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |

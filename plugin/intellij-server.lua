@@ -44,7 +44,7 @@ end, { nargs = "?", desc = "Create a new file from IntelliJ template" })
 vim.api.nvim_create_user_command("IntellijServerClean", function()
   local server = require("intellij-server")
   server.clean_and_restart()
-end, { desc = "Clean IntelliJ server indexes/caches and restart" })
+end, { desc = "Clean the current project's IntelliJ server caches and restart" })
 
 vim.api.nvim_create_user_command("IntellijServerBuildLog", function()
   require("intellij-server.build-log").open()

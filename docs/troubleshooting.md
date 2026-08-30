@@ -154,11 +154,17 @@ The plugin stores all IntelliJ server indexes, caches, config, and logs under Ne
 └── log/       # server logs
 ```
 
-These persist across reboots (unlike the default temp directory behavior). To clean and re-index:
+These persist across reboots (unlike the default temp directory behavior). Per-project workspace state
+(imported modules, SDK bindings, the workspace index) lives under the system cache directory, on macOS
+`~/Library/Caches/JetBrains/IntelliJServer/workspaces/`. To clean the current project's workspace caches and
+reimport:
 
 ```vim
 :IntellijServerClean
 ```
+
+Other projects' caches and servers are not affected. The shared stores (the data directory above and the analyzer
+cache in `~/Library/Caches/JetBrains/analyzer`) are not removed; delete them manually if they get corrupted.
 
 ### Plugin download location
 

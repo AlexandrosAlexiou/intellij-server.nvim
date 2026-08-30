@@ -78,40 +78,66 @@ function M.show_logs()
   vim.cmd("vsplit | edit " .. vim.fn.fnameescape(vim.lsp.log.get_filename()) .. " | normal! G")
 end
 
---- Paths removed by :IntellijServerClean.
+--- Paths removed by :IntellijServerClean for one project root.
+--- The server keeps per-workspace state (workspace-model.cache with the
+--- imported modules and SDK bindings, plus the workspace index) under
+--- JetBrains/IntelliJServer/workspaces/<hash>. The hash is opaque, but each
+--- workspace-model.cache embeds the project's paths, so the dirs belonging to
+--- a root are found by content. Shared stores (the data dir, the analyzer
+--- RocksDB cache) hold state for every project and are left alone.
+---@param root_dir string
 ---@return string[]
-function M.get_data_paths()
-  local paths = { M.data_dir() }
-
-  -- The analyzer writes RocksDB indexes to a separate cache dir
-  local analyzer_cache
+function M.get_data_paths(root_dir)
+  local caches_root
   if vim.fn.has("win32") == 1 then
-    local local_app_data = os.getenv("LOCALAPPDATA") or ((os.getenv("USERPROFILE") or "") .. "/AppData/Local")
-    analyzer_cache = local_app_data .. "/JetBrains/analyzer"
+    caches_root = os.getenv("LOCALAPPDATA") or ((os.getenv("USERPROFILE") or "") .. "/AppData/Local")
   elseif vim.fn.has("mac") == 1 then
-    analyzer_cache = (os.getenv("HOME") or "") .. "/Library/Caches/JetBrains/analyzer"
+    caches_root = (os.getenv("HOME") or "") .. "/Library/Caches"
   else
-    local xdg_cache = os.getenv("XDG_CACHE_HOME") or ((os.getenv("HOME") or "") .. "/.cache")
-    analyzer_cache = xdg_cache .. "/JetBrains/analyzer"
-  end
-  if vim.fn.isdirectory(analyzer_cache) == 1 then
-    table.insert(paths, analyzer_cache)
+    caches_root = os.getenv("XDG_CACHE_HOME") or ((os.getenv("HOME") or "") .. "/.cache")
   end
 
+  local paths = {}
+  for _, dir in ipairs(vim.fn.glob(caches_root .. "/JetBrains/IntelliJServer/workspaces/*", true, true)) do
+    local cache = io.open(dir .. "/index/intellij-server/workspace-model.cache", "rb")
+    if cache then
+      local content = cache:read("*a") or ""
+      cache:close()
+      -- Trailing slash so /a/foo cannot match a workspace of /a/foo-bar.
+      if content:find(root_dir:gsub("/$", "") .. "/", 1, true) then
+        table.insert(paths, dir)
+      end
+    end
+  end
   return paths
 end
 
---- Clean all indexes/caches and restart the server.
+--- Clean the current project's workspace caches and restart its server.
+--- Other projects' servers and caches are untouched.
 function M.clean_and_restart()
-  local clients = vim.lsp.get_clients({ name = "intellij-server" })
-  if #clients > 0 then
-    vim.notify("[intellij-server] Stopping LSP...", vim.log.levels.INFO)
-    M.kill_all_clients()
+  local client = vim.lsp.get_clients({ name = "intellij-server", bufnr = 0 })[1]
+    or vim.lsp.get_clients({ name = "intellij-server" })[1]
+  local root_dir = client and client.config.root_dir
+  if not root_dir then
+    vim.notify("[intellij-server] No running client to determine the project root.", vim.log.levels.WARN)
+    return
+  end
+
+  if client then
+    vim.notify("[intellij-server] Stopping LSP for " .. root_dir .. "...", vim.log.levels.INFO)
+    -- rpc.pid() only exists on Neovim < 0.12; stop(true) kills the direct
+    -- process either way, kill_tree additionally reaps import children.
+    ---@diagnostic disable-next-line: undefined-field
+    local pid = client.rpc and client.rpc.pid and client.rpc.pid()
+    client:stop(true)
+    if pid then
+      M.kill_tree(pid)
+    end
   end
   vim.cmd("sleep 500m")
 
   local cleaned = {}
-  for _, dir in ipairs(M.get_data_paths()) do
+  for _, dir in ipairs(M.get_data_paths(root_dir)) do
     if vim.fn.isdirectory(dir) == 1 then
       vim.fn.delete(dir, "rf")
       table.insert(cleaned, dir)
@@ -121,7 +147,7 @@ function M.clean_and_restart()
   if #cleaned > 0 then
     vim.notify("[intellij-server] Cleaned:\n  " .. table.concat(cleaned, "\n  "), vim.log.levels.INFO)
   else
-    vim.notify("[intellij-server] No caches found to clean.", vim.log.levels.INFO)
+    vim.notify("[intellij-server] No workspace caches found for " .. root_dir, vim.log.levels.INFO)
   end
 
   vim.defer_fn(function()
