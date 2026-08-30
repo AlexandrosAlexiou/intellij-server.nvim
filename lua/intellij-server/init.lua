@@ -4,6 +4,10 @@ local M = {}
 ---@class IntellijProjectSpec
 ---@field type "gradle"|"maven"|"bazel"|"jps"|"gomodules"|"gomodules-recursive-scan"|"json" Build system used to import the project.
 ---@field path string Workspace root or build file — a file:// URI or a filesystem path.
+---@field javaHome string? JDK home to use as the project SDK for this import. Without it the
+---   server binds the first JDK its own scan finds, which may not match the project.
+---@field env table<string, string>? Extra environment for the import process.
+---@field systemProperties table<string, string>? Extra system properties for the import process.
 
 ---@class IntellijServerConfig
 ---@field server_path string? Path to the intellij-server binary. Auto-detected if nil.
@@ -315,10 +319,18 @@ function M.start(bufnr)
   local init_options = {}
 
   -- Explicit project imports, mirroring the VS Code `intellij.projects`
-  -- setting. Paths are normalized to file:// URIs as the server expects.
+  -- setting. Without an explicit entry, per-project resolution applies:
+  -- .intellij-server.lua in the root, then a $JAVA_HOME pin (see
+  -- intellij-server.project). Paths are normalized to file:// URIs as the
+  -- server expects. The server's ConfiguredProject schema uses kebab-case
+  -- wire names (java-home, system-properties, project-path); the Lua spec
+  -- accepts camelCase and translates.
   local projects = M.config.projects
   if type(projects) == "function" then
     projects = projects(root_dir)
+  end
+  if type(projects) ~= "table" or vim.tbl_isempty(projects) then
+    projects = require("intellij-server.project").projects(root_dir)
   end
   if type(projects) == "table" and not vim.tbl_isempty(projects) then
     init_options.projects = vim.tbl_map(function(project)
@@ -326,7 +338,18 @@ function M.start(bufnr)
       if type(path) == "string" and not path:match("^%a[%w+.-]*://") then
         path = vim.uri_from_fname(vim.fn.fnamemodify(path, ":p"))
       end
-      return { type = project.type, path = path }
+      local java_home = project.javaHome or project["java-home"]
+      if type(java_home) == "string" then
+        java_home = vim.fn.fnamemodify(vim.fn.expand(java_home), ":p"):gsub("/$", "")
+      end
+      return {
+        type = project.type,
+        path = path,
+        env = project.env,
+        ["system-properties"] = project.systemProperties or project["system-properties"],
+        ["java-home"] = java_home,
+        ["project-path"] = project.projectPath or project["project-path"],
+      }
     end, projects)
   end
 

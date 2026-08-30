@@ -23,8 +23,7 @@ require("intellij-server").setup({
   -- JDK that runs the server process itself (default: nil). Resolution:
   -- this value > $JAVA_HOME > `java` on PATH > the bundled JBR.
   -- NOTE: this does NOT choose the JDK your project compiles/resolves
-  -- against — that is the project SDK, resolved server-side from
-  -- .idea/misc.xml.
+  -- against — that is the project SDK. See "Project JDK" below.
   java_home = "/Library/Java/JavaVirtualMachines/zulu-21.jdk/Contents/Home",
 
   -- The working directory is the project root; these only matter for files
@@ -121,8 +120,12 @@ require("intellij-server").setup({
   -- auto-import. Types: gradle, maven, bazel, jps, gomodules,
   -- gomodules-recursive-scan, json. Paths may be file:// URIs or plain paths.
   -- Can also be a function(root_dir) returning the list.
+  -- Optional fields per project: javaHome pins the JDK used as the project SDK
+  -- for the import (see "Project JDK" below); env and systemProperties pass
+  -- extra environment/properties to the import process.
   -- projects = {
-  --   { type = "gradle", path = "/path/to/project" },
+  --   { type = "maven", path = "/path/to/project",
+  --     javaHome = "/Library/Java/JavaVirtualMachines/zulu-25.jdk/Contents/Home" },
   -- },
   projects = nil,
 
@@ -162,6 +165,54 @@ stray marker above it cannot capture everything beneath. Failing that, the
 nearest `root_markers` directory, then the file's own directory.
 
 `root_dir` overrides all of it.
+
+## Project JDK
+
+Three separate JDKs are involved, and they are chosen by different mechanisms:
+
+1. **The JVM that runs the server itself.** Chosen by the `java_home` option, then `$JAVA_HOME`, then `java` on
+   PATH, then the bundled JBR. It has no influence on what your code resolves against.
+2. **The project SDK.** The JDK your code is compiled and resolved against: JDK classes, language level, `jar://`
+   and `jrt://` sources you land in with go-to-definition. How it is picked depends on the importer, see below.
+3. **The JVM that runs Maven or Gradle during import.** Resolved from the `JB_MAVEN_JAVA_HOME` system property
+   (settable through `jvm_args`), then the server process `$JAVA_HOME`, then the server's own JVM.
+
+How the project SDK is picked per importer:
+
+**Maven and Gradle.** The import is pinned to a JDK by the first of these that applies:
+
+1. An explicit `projects` entry in the setup config with a `javaHome` field.
+2. `.intellij-server.lua` in the project root. The file goes through Neovim's standard trust prompt (like `exrc`)
+   and returns a project spec, or a list of them; `type` and `path` default to the detected build system and the
+   root:
+
+   ```lua
+   return {
+     javaHome = "/Library/Java/JavaVirtualMachines/zulu-25.jdk/Contents/Home",
+   }
+   ```
+
+3. `$JAVA_HOME`, when it points at a real JDK. Per-project env managers (direnv, mise, sdkman) therefore pick the
+   SDK without any configuration.
+
+Without a pin the server picks the first JDK its filesystem scan finds, with no regard for what the project needs.
+The scan prefers the newest version, so a Homebrew OpenJDK pulled in as a dependency of another formula routinely
+wins over the JDK your project targets. The pom or build.gradle only controls the language level of the modules,
+not which installed JDK becomes the SDK.
+
+**JPS (`.idea` projects).** The SDK name in `.idea/misc.xml` (`project-jdk-name="zulu-21"`) is matched against the
+installed JDKs by IntelliJ's vendor-major naming convention (`zulu-21`, `temurin-19`, `jbr-21`, `graalvm-22`). When
+the name matches nothing, the same first-detected fallback applies. The JPS importer does not accept a java home,
+so `.intellij-server.lua` and `$JAVA_HOME` cannot pin it; fix the name in `misc.xml` instead. See "JPS projects:
+the wrong JDK is picked" in [Troubleshooting](troubleshooting.md) for the symptoms and the fix.
+
+Notes that apply to all importers:
+
+- The server does not read `jdk.table.xml` from its config directory, so IDE-style SDK tables have no effect.
+- The SDK binding is persisted in the workspace model cache. After changing `javaHome`, `misc.xml`, or the installed
+  JDKs, run `:IntellijServerClean` so a stale cached binding cannot survive the reimport.
+- JDKs are only found in standard locations (`/Library/Java/JavaVirtualMachines`, `~/.jdks`, SDKMAN, Homebrew,
+  `/usr/lib/jvm`, ...). A JDK outside of them must be pinned explicitly with `javaHome` or symlinked into one.
 
 ## Inlay hint settings
 

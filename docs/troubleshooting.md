@@ -99,7 +99,9 @@ sitting in your home directory from before this was redirected.
 
 ## JPS projects: the wrong JDK is picked
 
-Only JPS (`.idea`) projects are affected. Gradle and Maven imports resolve the JDK from their own build model.
+Only JPS (`.idea`) projects are affected by the `misc.xml` mechanism below. For Maven and Gradle projects, pin the
+JDK with the `javaHome` field of a `projects` entry instead, see "Project JDK" in
+[Configuration](configuration.md).
 Symptoms: go-to-definition into JDK classes opens `jar://` buffers under a JDK you never chose (a Homebrew
 `/opt/homebrew/opt/openjdk/...` is the classic case), or the language level and available APIs don't match your
 project's JDK.
