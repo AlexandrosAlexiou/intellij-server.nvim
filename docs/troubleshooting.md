@@ -97,6 +97,40 @@ overflowed, so delete them once you are done with them. Note that the JetBrains 
 `$HOME/java_error_in_intellij-server.hprof` and then refuses to overwrite that file, so a stale ~1 GB dump may be
 sitting in your home directory from before this was redirected.
 
+## JPS projects: the wrong JDK is picked
+
+Only JPS (`.idea`) projects are affected. Gradle and Maven imports resolve the JDK from their own build model.
+Symptoms: go-to-definition into JDK classes opens `jar://` buffers under a JDK you never chose (a Homebrew
+`/opt/homebrew/opt/openjdk/...` is the classic case), or the language level and available APIs don't match your
+project's JDK.
+
+The `java_home` setup option and `JAVA_HOME` only choose the JVM that runs the server process, not the project SDK.
+The JPS importer reads the SDK name from `.idea/misc.xml` (`project-jdk-name="zulu-21"`) and matches it against the
+JDKs installed in the standard locations (`/Library/Java/JavaVirtualMachines`, `~/.sdkman`, Homebrew, `/usr/lib/jvm`,
+...), using IntelliJ's naming convention of vendor plus major version: `zulu-21`, `temurin-19`, `jbr-21`, `graalvm-22`.
+When nothing matches (a bare version like `21.0.9`, a JDK that isn't installed, or no `misc.xml` yet), it silently
+falls back to the first JDK it finds, with no version matching, and writes that choice back to `misc.xml`. Note that
+the importer does not read `jdk.table.xml` from the server's config directory, so seeding SDK entries there has no
+effect.
+
+Each import logs the binding in `:IntellijServerLogs`, name in brackets, resolved home after the colon:
+
+```
+INFO - #c.j.l.i.j.JpsWorkspaceImporterKt - Detected SDK [21.0.9]: /opt/homebrew/opt/java/libexec/openjdk.jdk/Contents/Home
+```
+
+**Fix:** set `project-jdk-name` in `.idea/misc.xml` to the name of an installed JDK. On macOS,
+`/usr/libexec/java_home -V` lists vendors and homes to pick from:
+
+```xml
+<component name="ProjectRootManager" version="2" languageLevel="JDK_21" default="false"
+           project-jdk-name="zulu-21" project-jdk-type="JavaSDK" />
+```
+
+`.idea/` is typically gitignored, so the edit stays local to your machine. Restart with `:IntellijServerRestart` and
+check that the `Detected SDK` line now shows the right home. If the JDK you need lives somewhere the scan cannot find,
+install or symlink it into a scanned location such as `~/.jdks/`, since pointing config files at it is not enough.
+
 ## File paths
 
 ### Server binary
