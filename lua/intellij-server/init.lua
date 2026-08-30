@@ -90,7 +90,6 @@ M.defaults = {
 M.config = {}
 
 --- Setup the plugin.
----@param opts IntellijServerConfig?
 --- Point 'foldexpr' at the server's folding ranges. These are window options,
 --- so they can only be set for the windows a buffer is currently displayed in —
 --- a buffer attached by attach_open_buffers below has none yet, and is covered
