@@ -401,6 +401,7 @@ function M.start(bufnr)
     -- otherwise broken in Neovim. See lua/intellij-server/completion.lua.
     on_init = function(client)
       require("intellij-server.completion").attach(client)
+      require("intellij-server.semantic-tokens").setup()
       if (M.config.code_lens or {}).enabled ~= false then
         require("intellij-server.code-lens").attach(client)
       end
