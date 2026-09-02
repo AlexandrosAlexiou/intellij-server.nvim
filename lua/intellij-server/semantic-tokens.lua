@@ -7,9 +7,15 @@
 --- version and only re-requests on an edit, so buffers opened before or
 --- during indexing keep the degraded highlighting until an edit or :e.
 ---
---- The server never sends workspace/semanticTokens/refresh, but it reports
---- indexing through $/progress with the title "Indexing": when such a
---- progress ends, re-request tokens for every buffer attached to the client.
+--- The server reports indexing through $/progress with the title "Indexing"
+--- but never sends workspace/semanticTokens/refresh afterwards: when such a
+--- progress ends, invoke Neovim's built-in refresh handler ourselves, as if
+--- the server had sent it. Unlike force_refresh (which deletes all highlights
+--- immediately and flickers until the response arrives), the built-in handler
+--- only invalidates cached results, keeps the old highlights on screen, and
+--- swaps them atomically on redraw once fresh tokens arrive; it also
+--- debounces, so frequent no-op indexing cycles (e.g. triggered by shell
+--- prompts writing .git/index) cause no visible change.
 local M = {}
 
 -- client_id -> progress token -> title of live $/progress cycles
@@ -41,11 +47,8 @@ function M.setup()
         local title = by_token[params.token]
         by_token[params.token] = nil
         if title == "Indexing" then
-          for buf in pairs(client.attached_buffers) do
-            if vim.api.nvim_buf_is_loaded(buf) then
-              pcall(vim.lsp.semantic_tokens.force_refresh, buf)
-            end
-          end
+          local refresh = vim.lsp.handlers["workspace/semanticTokens/refresh"]
+          pcall(refresh, nil, nil, { client_id = client.id })
         end
       end
     end,
