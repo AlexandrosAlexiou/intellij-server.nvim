@@ -99,16 +99,6 @@ require("intellij-server").setup({
   -- Package navigation: open package definitions as a directory listing
   navigation = { enabled = true },
 
-  -- Inline completion (ghost text suggestions)
-  inline_completion = {
-    enabled = true,
-    keymaps = {
-      show = "<M-\\>",     -- trigger inline suggestion
-      accept = "<Tab>",    -- accept suggestion
-      dismiss = "<Esc>",   -- dismiss suggestion
-    },
-  },
-
   -- nvim-dap debugger integration. Also turns on the server's Run/Debug code
   -- lenses above main methods (initializationOptions.runMainCodeLens).
   dap = {

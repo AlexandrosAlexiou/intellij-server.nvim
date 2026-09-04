@@ -81,10 +81,10 @@ completion, the build log — is documented in **[docs/configuration.md](docs/co
 ## Features
 
 Java and Kotlin support from the same engine IntelliJ IDEA runs on: completion,
-diagnostics, navigation, refactoring, formatting, inlay hints, code lenses and
-inline completion — all through Neovim's built-in LSP client. On top of that the
+diagnostics, navigation, refactoring, formatting, inlay hints and code lenses —
+all through Neovim's built-in LSP client. On top of that the
 plugin supplies the client-side pieces the server expects an IDE to provide:
-package navigation, completion insertion, formatting, inline completion, file
+package navigation, completion insertion, formatting, file
 templates, and running and debugging through nvim-dap.
 
 ## Documentation
