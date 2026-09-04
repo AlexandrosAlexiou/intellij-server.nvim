@@ -28,7 +28,6 @@ local M = {}
 ---   instead, anything unmapped is dropped. `align = false` keeps Neovim's placement,
 ---   which indents each lens to the identifier it belongs to instead of the code.
 ---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
----@field inline_completion { enabled?: boolean, keymaps?: { show?: string, accept?: string, dismiss?: string } }?
 ---@field dap { enabled?: boolean }?
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
 ---@field projects (IntellijProjectSpec[]|fun(root_dir: string): IntellijProjectSpec[])? Explicit project imports (initializationOptions.projects). Overrides marker-based auto-import.
@@ -85,7 +84,6 @@ M.defaults = {
   folding = { enabled = true },
   code_lens = { enabled = true },
   navigation = { enabled = true },
-  inline_completion = { enabled = true },
   dap = { enabled = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
 }
@@ -220,11 +218,6 @@ function M.setup(opts)
   -- Package definitions resolve to directories; show them as a file listing.
   if (M.config.navigation or {}).enabled ~= false then
     require("intellij-server.navigation").setup()
-  end
-
-  local ic = M.config.inline_completion or {}
-  if ic.enabled ~= false then
-    require("intellij-server.inline-completion").setup_keymaps(ic.keymaps)
   end
 
   require("intellij-server.code-lens").setup(M.config.code_lens)

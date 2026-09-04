@@ -147,14 +147,6 @@ require("conform").setup({
 There are no formatting-related LSP settings. Customize the style per project via
 `.editorconfig` using IntelliJ's `ij_java_*` / `ij_kotlin_*` properties, exactly like the IDE.
 
-## Inline Completion
-
-The server supports `textDocument/inlineCompletion` (proposed LSP spec). The plugin renders suggestions as ghost text:
-
-- `<M-\>` — trigger a suggestion
-- `<Tab>` — accept
-- `<Esc>` — dismiss
-
 ## File Templates
 
 `:IntellijServerNewFile` creates new files using IntelliJ's template engine. Available templates:
