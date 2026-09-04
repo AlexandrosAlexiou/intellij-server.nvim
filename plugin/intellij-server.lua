@@ -73,3 +73,7 @@ end, {
 vim.api.nvim_create_user_command("IntellijServerAttach", function(cmd_opts)
   require("intellij-server.dap").attach(cmd_opts.args)
 end, { nargs = "?", desc = "Attach the debugger to a JVM on a JDWP port (default 5005)" })
+
+vim.api.nvim_create_user_command("IntellijServerFormat", function(cmd_opts)
+  require("intellij-server").format({ async = cmd_opts.bang })
+end, { bang = true, desc = "Format the buffer with IntelliJ's code-style engine (! to run async)" })

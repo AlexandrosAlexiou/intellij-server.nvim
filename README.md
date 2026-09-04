@@ -75,6 +75,7 @@ completion, the build log — is documented in **[docs/configuration.md](docs/co
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
+| `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
 | `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
 | `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
 

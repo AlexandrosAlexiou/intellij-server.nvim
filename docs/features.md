@@ -115,6 +115,13 @@ engine (builtin completion, nvim-cmp, blink.cmp). No configuration required.
 
 The server formats with IntelliJ's code-style engine (whole document only):
 
+```vim
+:IntellijServerFormat   " synchronous
+:IntellijServerFormat!  " async
+```
+
+or from Lua, `require("intellij-server").format({ async = true })`, which wraps:
+
 ```lua
 vim.lsp.buf.format()
 -- or, to be explicit when multiple LSP clients are attached:
@@ -126,7 +133,7 @@ A keymap example for `on_attach`:
 ```lua
 on_attach = function(client, bufnr)
   vim.keymap.set({ "n", "v" }, "<leader>fi", function()
-    vim.lsp.buf.format({ async = true, name = "intellij-server" })
+    require("intellij-server").format({ async = true })
   end, { buffer = bufnr, desc = "Format buffer with IntelliJ" })
 end,
 ```
