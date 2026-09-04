@@ -421,4 +421,22 @@ function M.clean_and_restart()
   require("intellij-server.process").clean_and_restart()
 end
 
+--- Format a buffer with IntelliJ's code-style engine (whole document only —
+--- the server does not advertise range formatting). Style is controlled by the
+--- project's .editorconfig (ij_java_* / ij_kotlin_* properties), like the IDE.
+---@param opts table? Options forwarded to vim.lsp.buf.format (bufnr, async, timeout_ms, …).
+function M.format(opts)
+  opts = opts or {}
+  local bufnr = opts.bufnr or vim.api.nvim_get_current_buf()
+
+  local clients = vim.lsp.get_clients({ bufnr = bufnr, name = "intellij-server" })
+  if vim.tbl_isempty(clients) then
+    vim.notify("intellij-server is not attached to this buffer", vim.log.levels.WARN)
+    return
+  end
+
+  -- Whole-document formatting on large files can exceed the 1s default.
+  vim.lsp.buf.format(vim.tbl_extend("force", { timeout_ms = 5000 }, opts, { name = "intellij-server" }))
+end
+
 return M
