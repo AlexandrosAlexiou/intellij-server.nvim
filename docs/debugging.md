@@ -87,9 +87,52 @@ require("dap").defaults.fallback.external_terminal = {
   command = "/opt/homebrew/bin/wezterm",
   args = { "start", "--" },
 }
--- where the integrated terminal opens
+-- where the integrated terminal opens, and whether the cursor moves into it
 require("dap").defaults.intellij.terminal_win_cmd = "belowright 15new"
+require("dap").defaults.intellij.focus_terminal = false
 ```
+
+### Managing the program terminal
+
+The terminal buffer is nvim-dap's, not the plugin's — it is named
+`[dap-terminal] <name>` after the launch configuration (the lenses and
+`:IntellijServerRun` use the class's simple name).
+
+**Hide** it by closing the window (`<C-w>q` or `:hide`); the buffer and the
+program keep running. **Show** it again with `:ls` and `:sb N`, or bind a toggle:
+
+```lua
+vim.keymap.set("n", "<leader>dt", function()
+  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
+    local buf = vim.api.nvim_win_get_buf(win)
+    if vim.api.nvim_buf_get_name(buf):match("%[dap%-terminal%]") then
+      return vim.api.nvim_win_close(win, true)             -- visible → hide
+    end
+  end
+  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
+    if vim.api.nvim_buf_is_loaded(buf)
+        and vim.api.nvim_buf_get_name(buf):match("%[dap%-terminal%]") then
+      vim.cmd("belowright 15split")                        -- hidden → show
+      return vim.api.nvim_win_set_buf(0, buf)
+    end
+  end
+end, { desc = "Toggle DAP terminal" })
+```
+
+**Kill** the program, from polite to guaranteed:
+
+1. `:DapTerminate` (or `require("dap").terminate()`) — even a `Run` lens launch
+   (`noDebug`) has a live DAP session behind it, so this asks the adapter to
+   kill the debuggee and ends the session. The normal way.
+2. `Ctrl-C` in the terminal — `i` on the buffer enters terminal-mode, `<C-c>`
+   sends the program SIGINT. Interrupts a server or a loop without touching the
+   session.
+3. `:bd!` on the terminal buffer — deleting a terminal buffer makes Neovim kill
+   its job unconditionally. Works even when the session or adapter is wedged.
+
+Note that nvim-dap does not kill the job when a session merely closes, so after
+an abnormal session end the program can linger in the hidden buffer — `:bd!` is
+the cleanup for that case.
 
 Example custom configuration:
 
@@ -175,5 +218,12 @@ Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration.
   in the extension's schema but never reach the server.
 - Execution is not delegated to Maven or Gradle, so launch parameters set in a
   build script do not apply.
+- **Nothing is compiled before launch.** Unlike an IntelliJ run configuration,
+  which runs a Build step first, the adapter launches `java` against whatever is
+  already in the output directories on the resolved classpath. Build before you
+  run, and rebuild after editing, or the launch runs stale classes — or none at
+  all. Mill projects hit a worse variant of this out of the box, where the
+  output directories on the classpath are ones Mill never writes to; see
+  [Troubleshooting](troubleshooting.md#mill-projects-rundebug-fails-with-classnotfoundexception-for-the-main-class).
 - The Run/Debug lenses carry only the main class, so they always launch a
   program bare. Use `:IntellijServerRun` or a configuration to pass arguments.
