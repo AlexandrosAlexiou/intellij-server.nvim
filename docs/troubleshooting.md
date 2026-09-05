@@ -75,6 +75,51 @@ Then run it from the project root (requires Gradle 7.5+ for variant reselection)
 Either way, re-sync the project afterwards (restart the server or reload the project) so the freshly cached sources
 jars are picked up.
 
+## Mill projects: Run/Debug fails with `ClassNotFoundException` for the main class
+
+Symptoms: hover, completion and go-to-definition all work, but launching a main class (code lens or
+`:IntellijServerRun`) dies immediately with
+
+```text
+Error: Could not find or load main class com.example.Main
+Caused by: java.lang.ClassNotFoundException: com.example.Main
+```
+
+Mill projects reach the server as JPS (`.idea`) projects through Mill's `GenIdea`. The generated
+`.idea/mill_modules/*.iml` files set each module's compile output to
+
+```text
+out/<module>/internalGenIdea/ideaCompileOutput.dest/classes
+```
+
+which is a directory nothing ever compiles into: Mill itself compiles to
+`out/<module>/compile.dest/classes`, and the server [does not build before launching](debugging.md#limitations-server-0010).
+The launch classpath comes straight from the project model (`intellij.java.resolveClasspath`), so
+`java` starts with a classpath of empty directories and the main class is not found. Language
+features are unaffected because the LSP reads sources, not compiled output — which is why hover
+works while Run fails.
+
+**Fix:** link each module's IntelliJ output directory to Mill's real one, then compile with Mill:
+
+```bash
+# from the project root; list your build.mill module names
+for m in app core; do
+  d=out/$m/internalGenIdea/ideaCompileOutput.dest
+  mkdir -p "$d" && ln -sfn ../../compile.dest/classes "$d/classes"
+done
+mill __.compile
+```
+
+Nested modules use their `out/` path, e.g. `out/foo/bar` for `foo.bar`.
+
+Caveats:
+
+- Nothing builds before launch, so run `mill __.compile` (or the module's `.compile`) after editing,
+  or the launch runs stale classes.
+- `mill clean` removes the symlinks — re-run the loop afterwards.
+- Renamed modules leave their old `out/<name>` directories behind; the current names are the ones in
+  the `.iml` files (`rg -o 'out/[^/]+' .idea/mill_modules/*.iml`).
+
 ## The server dies with `java.lang.OutOfMemoryError: Java heap space`
 
 The server ships with a 2 GB heap (`-Xmx2048m` in `server/bin/intellij-server.vmoptions`), which large or
