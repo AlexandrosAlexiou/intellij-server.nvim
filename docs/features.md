@@ -111,6 +111,20 @@ engine (builtin completion, nvim-cmp, blink.cmp). No configuration required.
 > For nvim-cmp + nvim-autopairs, don't wire `cmp.event:on("confirm_done", ...)`
 > for these filetypes (use its `filetypes` blocklist).
 
+## Live template indentation fix
+
+Live template completions (`sout`, `fori`, `psvm`, …) are the one case where
+the server sends a real snippet `textEdit` — but pre-formatted with *absolute*
+indentation in the server's own code style (4 spaces, spaces only, ignoring
+even the project's `.editorconfig`). Applied verbatim, a `sout` in a 2-space or
+tab-indented buffer gains extra leading spaces or has its tabs replaced.
+
+The plugin rewrites these edits into the standard relative snippet form: the
+buffer's existing leading whitespace is kept, and inner lines use `\t` per
+indent level, which `vim.snippet` (used by builtin completion, nvim-cmp and
+blink.cmp) materializes according to `'shiftwidth'`/`'expandtab'`. Template
+expansions follow your buffer's indentation. No configuration required.
+
 ## Formatting
 
 The server formats with IntelliJ's code-style engine (whole document only):
