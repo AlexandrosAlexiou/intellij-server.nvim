@@ -220,3 +220,7 @@ cache in `~/Library/Caches/JetBrains/analyzer`) are not removed; delete them man
 ├── server/          # extracted server (bin, lib, jbr, plugins, etc.)
 └── .version         # version marker (e.g., "0.0.10+263.3533.0")
 ```
+
+The archive is ~370 MB. If the download is interrupted (network drop, `curl: (18) transfer closed`, quitting Neovim),
+the partial `intellij-server-<version>+<build>.vsix` is kept in that directory and the next `:IntellijServerInstall`
+resumes from where it stopped instead of starting over. It is deleted once extraction succeeds.

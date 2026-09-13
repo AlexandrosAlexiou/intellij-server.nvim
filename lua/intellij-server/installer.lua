@@ -97,24 +97,49 @@ function M.install(opts)
   end
 
   local install_dir = M.install_dir()
-  local tmp_file = vim.fn.tempname() .. ".vsix"
+  vim.fn.mkdir(install_dir, "p")
 
-  vim.notify("[intellij-server] Downloading IntelliJ server v" .. version.version .. "...", vim.log.levels.INFO)
+  -- The archive is ~370 MB. Download to a stable, version-specific path inside
+  -- the install dir (not a random tempname) so that an interrupted transfer is
+  -- resumed by the next :IntellijServerInstall instead of starting over. Any
+  -- leftover archives from other versions are stale partials — drop them.
+  local tmp_file = ("%s/intellij-server-%s+%s.vsix"):format(install_dir, version.version, version.build)
+  for _, stale in ipairs(vim.fn.glob(install_dir .. "/*.vsix", false, true)) do
+    if stale ~= tmp_file then
+      os.remove(stale)
+    end
+  end
+
+  local resuming = vim.fn.filereadable(tmp_file) == 1
+  vim.notify(
+    ("[intellij-server] %s IntelliJ server v%s..."):format(resuming and "Resuming download of" or "Downloading", version.version),
+    vim.log.levels.INFO
+  )
 
   -- Download asynchronously. vim.system raises on spawn failure (ENOENT, no
   -- permission, ...) instead of calling the callback — surface it as a notify.
+  --
+  -- `-C -` resumes from whatever is already in tmp_file (the CDN supports byte
+  -- ranges); `--retry-all-errors` also retries on a connection that is closed
+  -- mid-transfer (curl exit 18), which plain `--retry` does not consider
+  -- transient.
   local spawn_ok, spawn_err = pcall(
     vim.system,
-    { "curl", "-fSL", "--progress-bar", "-o", tmp_file, url },
+    {
+      "curl", "-fSL", "--progress-bar",
+      "--retry", "5", "--retry-all-errors", "--retry-delay", "2",
+      "-C", "-",
+      "-o", tmp_file, url,
+    },
     { text = true },
     function(result)
       vim.schedule(function()
         if result.code ~= 0 then
-          fail("Download failed: " .. (result.stderr or "unknown error"))
+          -- Keep the partial file: the next run resumes from it.
+          fail("Download failed: " .. (result.stderr or "unknown error")
+            .. "\nRun :IntellijServerInstall again to resume the download.")
           return
         end
-
-        vim.fn.mkdir(install_dir, "p")
 
         local extract_cmd
         if vim.fn.has("win32") == 1 then
@@ -125,6 +150,8 @@ function M.install(opts)
 
         local extract_ok, extract_err = pcall(vim.system, extract_cmd, { text = true }, function(unzip_result)
           vim.schedule(function()
+            -- Successful or not, the archive is no longer useful: a failed
+            -- extract means it is corrupt, so resuming it would not help.
             os.remove(tmp_file)
 
             if unzip_result.code ~= 0 then
