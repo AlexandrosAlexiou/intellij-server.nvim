@@ -17,7 +17,7 @@ Provides Java and Kotlin language support including code completion, diagnostics
 
 ```lua
 {
-  "Alexandros-Alexiou/intellij-server.nvim",
+  "AlexandrosAlexiou/intellij-server.nvim",
   ft = { "java", "kotlin" },
   dependencies = { "mfussenegger/nvim-dap" }, -- optional
   build = ":IntellijServerInstall",  -- auto-download on install/update
@@ -30,7 +30,7 @@ Provides Java and Kotlin language support including code completion, diagnostics
 Clone this repo into your Neovim packages directory:
 
 ```sh
-git clone https://github.com/Alexandros-Alexiou/intellij-server.nvim \
+git clone https://github.com/AlexandrosAlexiou/intellij-server.nvim \
   ~/.local/share/nvim/site/pack/plugins/start/intellij-server.nvim
 ```
 
