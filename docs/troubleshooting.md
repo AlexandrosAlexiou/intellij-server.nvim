@@ -93,8 +93,9 @@ out/<module>/internalGenIdea/ideaCompileOutput.dest/classes
 ```
 
 which is a directory nothing ever compiles into: Mill itself compiles to
-`out/<module>/compile.dest/classes`, and the server [does not build before launching](debugging.md#limitations-server-0010).
-The launch classpath comes straight from the project model (`intellij.java.resolveClasspath`), so
+`out/<module>/compile.dest/classes`, and the server has no build command for Mill (the pre-launch
+build via `intellij.java.resolveBuildCommand` covers Maven, Gradle, Bazel and JPS only).
+The launch classpath comes straight from the project model (`intellij.java.resolveLaunch`), so
 `java` starts with a classpath of empty directories and the main class is not found. Language
 features are unaffected because the LSP reads sources, not compiled output — which is why hover
 works while Run fails.
@@ -218,7 +219,7 @@ cache in `~/Library/Caches/JetBrains/analyzer`) are not removed; delete them man
 ```
 ~/.local/share/nvim/intellij-server/
 ├── server/          # extracted server (bin, lib, jbr, plugins, etc.)
-└── .version         # version marker (e.g., "0.0.10+263.3533.0")
+└── .version         # version marker (e.g., "0.0.12+263.4702.0")
 ```
 
 The archive is ~370 MB. If the download is interrupted (network drop, `curl: (18) transfer closed`, quitting Neovim),

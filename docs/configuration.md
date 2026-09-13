@@ -103,6 +103,9 @@ require("intellij-server").setup({
   -- lenses above main methods (initializationOptions.runMainCodeLens).
   dap = {
     enabled = true,  -- requires nvim-dap
+    -- Compile the module with its build tool before a JVM launch (the VS Code
+    -- extension's pre-launch build task). Output goes to :IntellijServerBuildLog.
+    build_before_launch = true,
   },
 
   -- Explicit project imports (initializationOptions.projects), equivalent to
@@ -118,6 +121,19 @@ require("intellij-server").setup({
   --     javaHome = "/Library/Java/JavaVirtualMachines/zulu-25.jdk/Contents/Home" },
   -- },
   projects = nil,
+
+  -- Build tool per workspace folder (initializationOptions.buildTools), for a
+  -- folder that more than one build system claims — a pom.xml next to a
+  -- build.gradle. The server does not import such a folder until told which
+  -- tool to use; it reports it as blocked (intellij/workspaceImportStatus) and
+  -- the plugin shows the folder and the candidates. Keys are paths or file://
+  -- URIs, values "gradle" | "maven" | "bazel" | "jps".
+  -- build_tools = { ["~/src/app"] = "gradle" },
+  build_tools = nil,
+
+  -- JDK home used for symbol resolution when a project pins none
+  -- (initializationOptions.defaultSdk; VS Code: intellij.jdkForSymbolResolution).
+  default_sdk = nil,
 
   -- Disable the RocksDB write-ahead log for the server's index storage
   -- (initializationOptions.disableRocksDBWriteAheadLog).

@@ -4,7 +4,7 @@
 
 ## Standard LSP
 
-Everything the server (v0.0.10) advertises is supported. Features marked *automatic* work through
+Everything the server (v0.0.12) advertises is supported. Features marked *automatic* work through
 Neovim's built-in LSP client with no configuration.
 
 | Feature | How to use |

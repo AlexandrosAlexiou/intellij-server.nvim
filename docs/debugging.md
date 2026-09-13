@@ -46,16 +46,29 @@ For JVM arguments, environment variables or a working directory, use a nvim-dap
 configuration (further down) — those are per-program settings worth keeping around.
 
 Before a session starts, whatever the configuration leaves out is resolved from the
-project model, the same way the VS Code extension resolves it:
+project model, the same way the VS Code extension resolves it (server 0.0.12+):
 
-| Missing | Resolved via |
-|---------|--------------|
-| `file` | `intellij.java.resolveClassDocument` |
-| `classPaths` (plus `modulePaths`, `moduleName`) | `intellij.java.resolveClasspath` |
-| `cwd` | `intellij.java.resolveWorkingDirectory` |
-| `javaExec` | `intellij.java.resolveJavaExecutable` |
+| Step | Resolved via |
+|------|--------------|
+| `file` from `mainClass` | `intellij.java.resolveClassDocument` |
+| which launcher (`launcher = "auto"`, what the lenses use) | `intellij.java.resolveBuildToolLaunch` — Gradle when it can run the module, otherwise a JVM launch |
+| build before a JVM launch | `intellij.java.resolveBuildCommand` — the tool's own compile command (`mvn -pl :app -am compile`, `gradle :app:classes`, …), run with its output in `:IntellijServerBuildLog` |
+| `javaExec`, `classPaths`, `modulePaths`, `moduleName`, `moduleContentPaths`, `cwd` | `intellij.java.resolveLaunch` — one request; values the configuration sets are sent as overrides and the server merges them |
+| Gradle launch: `buildToolTarget`, `classPaths` (breakpoint scope) | `intellij.java.resolveBuildToolLaunch` |
 
-So `mainClass` on its own is enough. Launch configurations support:
+So `mainClass` on its own is enough. Two ways to run exist, selected by `launcher`:
+
+- **`"jvm"`** (default for your own nvim-dap configurations): the module is compiled with its
+  build tool first, then `java` is spawned with the resolved classpath. Set `build = false` on a
+  configuration, or `dap = { build_before_launch = false }` in `setup()`, to skip the compile.
+- **`"gradle"`**: the adapter hands the launch to Gradle, which compiles as part of running. No
+  classpath or JDK is decided on this side; `projectPath`, `sourceSet` and `gradleArgs` speak
+  Gradle's vocabulary instead. Refused when Gradle cannot launch the module.
+- **`"auto"`**: what the Run/Debug lenses and `:IntellijServerRun` use — `"gradle"` when Gradle can
+  run the module, otherwise `"jvm"`. Maven and plain projects always launch as `"jvm"`; no single
+  Maven invocation can both build the reactor and exec one module.
+
+Launch configurations support:
 
 | Property      | Type       | Description |
 |---------------|------------|-------------|
@@ -69,6 +82,11 @@ So `mainClass` on its own is enough. Launch configurations support:
 | `classPaths`  | `string[]` | Runtime classpath override |
 | `modulePaths` | `string[]` | JPMS module path override; resolved from the project model if empty |
 | `moduleName`  | `string`   | JPMS module owning the main class, launched as `-m moduleName/mainClass`; resolved automatically if empty |
+| `launcher`    | `string`   | `"jvm"` (default), `"gradle"`, or `"auto"` — see above |
+| `build`       | `boolean`  | Compile the module before a `"jvm"` launch. Default: `dap.build_before_launch` (on) |
+| `projectPath` | `string`   | Gradle only: project to run in, as Gradle names it (`":app"`). Default: the project the module came from |
+| `sourceSet`   | `string`   | Gradle only: source set whose runtime classpath the program runs on (`"main"`, `"test"`). Default: the module's |
+| `gradleArgs`  | `string[]` | Gradle only: arguments for the Gradle invocation itself (`"--offline"`, `"-Pkey=value"`) |
 | `noDebug`     | `boolean`  | Run without attaching the debugger |
 | `console`     | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), or `externalTerminal` |
 
@@ -191,9 +209,10 @@ Start the JVM with JDWP enabled:
 -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005
 ```
 
-Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration.
+Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration. Attach
+configurations take `port`, `hostName` (default `localhost`) and `timeout` (ms, default 30000).
 
-## Limitations (server 0.0.10)
+## Limitations (server 0.0.12)
 
 - **Tests cannot be run or debugged.** The server exposes no test discovery or
   test-run support at all — the same limitation the VS Code extension has. Until

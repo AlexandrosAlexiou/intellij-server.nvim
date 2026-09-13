@@ -28,10 +28,18 @@ local M = {}
 ---   instead, anything unmapped is dropped. `align = false` keeps Neovim's placement,
 ---   which indents each lens to the identifier it belongs to instead of the code.
 ---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
----@field dap { enabled?: boolean }?
+---@field dap { enabled?: boolean, build_before_launch?: boolean }? nvim-dap integration. `build_before_launch`
+---   (default: on) compiles the module with its build tool before a JVM launch, like the VS Code
+---   extension's pre-launch build task; a configuration can opt out with `build = false`.
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
 ---@field projects (IntellijProjectSpec[]|fun(root_dir: string): IntellijProjectSpec[])? Explicit project imports (initializationOptions.projects). Overrides marker-based auto-import.
 ---@field disable_rocksdb_wal boolean? Disable the RocksDB write-ahead log for the server's index storage.
+---@field build_tools table<string, string>? Build tool per workspace folder (initializationOptions.buildTools),
+---   for folders more than one build system claims: `{ ["~/src/app"] = "gradle" }`. Keys are paths
+---   or file:// URIs, values "gradle" | "maven" | "bazel" | "jps". Without it the server reports the
+---   folder as blocked (intellij/workspaceImportStatus) and does not import it.
+---@field default_sdk string? JDK home the server uses for symbol resolution when a project pins none
+---   (initializationOptions.defaultSdk, the VS Code `intellij.jdkForSymbolResolution` setting).
 M.defaults = {
   server_path = nil,
   java_home = nil,
@@ -40,6 +48,8 @@ M.defaults = {
   root_dir = nil,
   projects = nil,
   disable_rocksdb_wal = nil,
+  build_tools = nil,
+  default_sdk = nil,
   root_markers = {
     "pom.xml",
     "build.gradle",
@@ -84,7 +94,7 @@ M.defaults = {
   folding = { enabled = true },
   code_lens = { enabled = true },
   navigation = { enabled = true },
-  dap = { enabled = true },
+  dap = { enabled = true, build_before_launch = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
 }
 
@@ -350,9 +360,27 @@ function M.start(bufnr)
     init_options.disableRocksDBWriteAheadLog = M.config.disable_rocksdb_wal
   end
 
+  -- Per-folder build tool for folders claimed by several build systems, keyed
+  -- by folder URI as the server expects (server 0.0.12+).
+  if type(M.config.build_tools) == "table" and not vim.tbl_isempty(M.config.build_tools) then
+    init_options.buildTools = {}
+    for folder, tool in pairs(M.config.build_tools) do
+      local uri = folder
+      if not folder:match("^%a[%w+.-]*://") then
+        uri = vim.uri_from_fname(vim.fn.fnamemodify(vim.fn.expand(folder), ":p"):gsub("/$", ""))
+      end
+      init_options.buildTools[uri] = tool
+    end
+  end
+
+  if type(M.config.default_sdk) == "string" and M.config.default_sdk ~= "" then
+    init_options.defaultSdk = vim.fn.fnamemodify(vim.fn.expand(M.config.default_sdk), ":p"):gsub("/$", "")
+  end
+
   -- Ask the server for the Run/Debug code lenses above every main entry point.
-  -- They carry an `intellij_debugger.runMain` command, which we dispatch to
-  -- nvim-dap through the client-side `commands` table below.
+  -- They carry an `intellij.jvm.runMain` command (`intellij_debugger.runMain`
+  -- on server 0.0.10), which we dispatch to nvim-dap through the client-side
+  -- `commands` table below.
   local lsp_commands = nil
   if (M.config.dap or {}).enabled ~= false and pcall(require, "dap") then
     init_options.runMainCodeLens = true
@@ -365,6 +393,16 @@ function M.start(bufnr)
     -- place it in the current buffer instead of switching windows/scrolling.
     ["window/showDocument"] = function(_, params, ctx)
       return require("intellij-server.completion").show_document(params, ctx)
+    end,
+    -- ModCommands that drive the editor after their edit (start a rename,
+    -- open completion, show parameter hints) arrive as VS Code command ids.
+    ["intellij/runEditorCommand"] = function(_, params, ctx)
+      return require("intellij-server.editor-command").handler(_, params, ctx)
+    end,
+    -- Folders the server refuses to import on its own (several build systems
+    -- claim them) — tell the user how to pick one.
+    ["intellij/workspaceImportStatus"] = function(_, params, ctx)
+      return require("intellij-server.import-status").handler(_, params, ctx)
     end,
   }
   -- Streamed import/build output (Maven downloads, compilation, …),
