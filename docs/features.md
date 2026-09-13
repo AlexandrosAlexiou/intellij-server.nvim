@@ -22,7 +22,7 @@ Neovim's built-in LSP client with no configuration.
 | Formatting (document) | `vim.lsp.buf.format()` |
 | Diagnostics (pull) | *automatic* — `vim.diagnostic.*` |
 | Signature help | `<C-s>` (insert mode) / `vim.lsp.buf.signature_help()` |
-| Semantic tokens | *automatic* — IntelliJ-quality highlighting layered over treesitter |
+| Semantic tokens | *automatic* — IntelliJ-quality highlighting layered over treesitter; the server's overlapping tokens are flattened by the plugin, see below |
 | Inlay hints | enabled on attach by the plugin — `inlay_hints = { enabled = false }` to opt out, or toggle with `vim.lsp.inlay_hint.enable()` |
 | Folding range | wired on attach: `foldexpr = v:lua.vim.lsp.foldexpr()`, folds start open — `folding = { enabled = false }` to opt out; use `zc`/`zo`/`za` |
 | Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods when nvim-dap is available. VS Code codicon markup in titles is swapped for Nerd Font glyphs and lenses are aligned with the code they sit above (`icons`, `align`); `code_lens = { enabled = false }` to opt out |
@@ -124,6 +124,27 @@ buffer's existing leading whitespace is kept, and inner lines use `\t` per
 indent level, which `vim.snippet` (used by builtin completion, nvim-cmp and
 blink.cmp) materializes according to `'shiftwidth'`/`'expandtab'`. Template
 expansions follow your buffer's indentation. No configuration required.
+
+## Semantic token overlap fix
+
+The server reports every prefix of a qualified name as its own token, nested
+rather than side by side. `import org.pkl.parser.syntax.Expr.AmendsExpr;` comes
+back as six tokens that all start at the same column: the whole name as a
+`class`, the enclosing `org.pkl.parser.syntax.Expr` as a `class`, then
+`org.pkl.parser.syntax`, `org.pkl.parser`, `org.pkl` and `org` as `namespace`.
+
+Neovim sets one extmark per token and gives them all the same priority, so
+where several start at the same column the winner comes down to extmark
+ordering, which is not stable. Imports of nested classes are the case with two
+overlapping `class` tokens, and those lines flip between a namespace-coloured
+package with a typed tail and the whole name in the class colour as unrelated
+edits land. On `ParserImpl.java` in the pkl repo, 16 of 71 import lines
+alternated between the two renderings.
+
+The plugin rewrites each response as the non-overlapping cover the nesting
+describes: the innermost token owns every column it spans, and an enclosing
+token keeps only the columns no inner token claims. Highlighting then matches
+the resolved symbols and stays put. No configuration required.
 
 ## Formatting
 
