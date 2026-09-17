@@ -8,15 +8,27 @@ vim.api.nvim_create_user_command("IntellijServerStart", function()
 end, { desc = "Start IntelliJ LSP server for the current buffer" })
 
 vim.api.nvim_create_user_command("IntellijServerStop", function()
-  require("intellij-server.process").kill_all_clients()
-end, { desc = "Stop all IntelliJ LSP server instances" })
+  local process = require("intellij-server.process")
+  if process.kill_socket_server() then
+    vim.notify("[intellij-server] Shared server stopped.", vim.log.levels.INFO)
+  else
+    vim.notify("[intellij-server] No shared server process found.", vim.log.levels.WARN)
+  end
+end, {
+  desc = "Stop IntelliJ LSP client",
+})
 
 vim.api.nvim_create_user_command("IntellijServerRestart", function()
-  require("intellij-server.process").kill_all_clients()
-  vim.defer_fn(function()
+  local process = require("intellij-server.process")
+  process.kill_socket_server()
+
+  -- Restart once the old clients have actually stopped, not after a guess.
+  process.await_clients_stopped(3000, function()
     require("intellij-server").start()
-  end, 500)
-end, { desc = "Restart IntelliJ LSP server" })
+  end)
+end, {
+  desc = "Restart IntelliJ LSP client",
+})
 
 vim.api.nvim_create_user_command("IntellijServerInstall", function()
   require("intellij-server.installer").install()

@@ -1,4 +1,6 @@
 --- Server binary discovery and launch configuration.
+---@diagnostic disable-next-line: undefined-field
+local uv = vim.uv
 local M = {}
 
 --- Resolve a JDK home from the current environment.
@@ -15,7 +17,7 @@ local function detect_java_home()
     return nil
   end
 
-  local real_java_bin = (vim.uv or vim.loop).fs_realpath(java_bin) or java_bin
+  local real_java_bin = uv.fs_realpath(java_bin) or java_bin
   local bin_dir = vim.fn.fnamemodify(real_java_bin, ":h")
   if vim.fn.fnamemodify(bin_dir, ":t") == "bin" then
     return vim.fn.fnamemodify(bin_dir, ":h")

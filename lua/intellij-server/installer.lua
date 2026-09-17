@@ -1,3 +1,5 @@
+---@diagnostic disable-next-line: undefined-field
+local uv = vim.uv
 local M = {}
 
 local version = require("intellij-server.version")
@@ -17,8 +19,8 @@ local ARCH_ALIASES = {
 --- Detect the current platform key (e.g., "mac-aarch64").
 ---@return string?
 local function detect_platform()
-  local os_name = vim.uv.os_uname().sysname
-  local arch = ARCH_ALIASES[vim.uv.os_uname().machine]
+  local os_name = uv.os_uname().sysname
+  local arch = ARCH_ALIASES[uv.os_uname().machine]
 
   for platform_key, info in pairs(version.platforms) do
     if os_name == info.os and arch == info.arch then
@@ -33,7 +35,7 @@ end
 function M.get_url()
   local platform = detect_platform()
   if not platform then
-    return nil, "Unsupported platform: " .. vim.uv.os_uname().sysname .. "/" .. vim.uv.os_uname().machine
+    return nil, "Unsupported platform: " .. uv.os_uname().sysname .. "/" .. uv.os_uname().machine
   end
   local filename = ("intellij-server-%s-%s.vsix"):format(version.version, platform)
   local url = ("%s/%s/%s"):format(version.base_url, version.build, filename)
@@ -50,7 +52,7 @@ end
 ---@return string
 function M.server_bin()
   local dir = M.install_dir()
-  local sysname = vim.uv.os_uname().sysname
+  local sysname = uv.os_uname().sysname
   if sysname == "Windows_NT" then
     return dir .. "/server/bin/intellij-server.exe"
   end

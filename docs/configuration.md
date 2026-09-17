@@ -157,6 +157,18 @@ require("intellij-server").setup({
     open_on_failure = true,  -- auto-open the log window on failure
     notify = true,           -- vim.notify on start/success/failure
   },
+
+  -- How the client talks to the server. See "Shared server (socket mode)" below.
+  connection = {
+    -- "stdio" (default): one server process per project root, owned by this
+    -- Neovim instance. "socket": connect to a single shared server over TCP
+    -- that serves every project and every Neovim instance at once.
+    mode = "stdio",
+    host = "127.0.0.1",         -- where the shared server listens
+    port = 9999,                -- the server's own default port
+    autostart_server = true,    -- spawn the shared server if nothing is listening
+    connect_timeout_ms = 60000, -- how long to wait for a spawned server to accept
+  },
 })
 ```
 
@@ -180,6 +192,84 @@ stray marker above it cannot capture everything beneath. Failing that, the
 nearest `root_markers` directory, then the file's own directory.
 
 `root_dir` overrides all of it.
+
+## Shared server (socket mode)
+
+The server is a headless IntelliJ IDEA and weighs accordingly. In the default
+stdio mode every Neovim instance (and every project root within one) spawns its
+own copy. Socket mode runs **one** server process (`--socket --multi-client`)
+that serves every project and every Neovim instance at once — each project root
+still gets its own LSP connection, but they all land in the same JVM:
+
+```lua
+require("intellij-server").setup({
+  connection = { mode = "socket" },  -- host/port default to 127.0.0.1:9999
+})
+```
+
+**Startup.** When nothing is listening on `host:port`, the first Neovim to need
+the server spawns it (detached, so it is not tied to that Neovim's lifetime)
+and connects once it accepts connections — a cold JVM start takes tens of
+seconds, bounded by `connect_timeout_ms`. Every later Neovim, and every later
+project, just connects. If two instances race to spawn, the loser fails to
+bind the port and exits while its connection attempt succeeds against the
+winner. Set `autostart_server = false` to manage the server yourself:
+
+```sh
+# The --eula hash is the first 16 characters of the SHA-256 of server/EULA.txt:
+#   shasum -a 256 server/EULA.txt | cut -c1-16
+~/.local/share/nvim/intellij-server/server/bin/intellij-server \
+  --socket=127.0.0.1:9999 --multi-client --eula <hash>
+```
+
+When the plugin spawns the server it applies the same environment as stdio mode
+(`java_home`, `jvm_args`, the persistent data/log directories). A manually
+started server uses whatever environment you give it, so `:IntellijServerLogs`
+only finds the server log if you point `-Didea.log.path` at
+`stdpath("data")/intellij-server/data/log` yourself.
+
+A non-loopback `host` is connect-only: the plugin never spawns a server on a
+remote machine, and the debugger (nvim-dap) connects its DAP session to that
+host too.
+
+**Lifecycle.** The server itself never exits when its last client
+disconnects (server 0.0.12), so the plugin ends it: each Neovim that connects
+leaves a lease, a file named after its pid in
+`stdpath("data")/intellij-server/data/socket-clients/`, and the last one to
+quit — no other live Neovim holding a lease on the same port — stops the
+server it spawned. This works the same on Windows, macOS and Linux; where
+`lsof` is installed, connections from clients without a lease keep the server
+alive too. A server started by hand (`autostart_server = false`, or not in the
+pidfile) is never stopped by the plugin. Quitting Neovim while others are
+still connected, `:IntellijServerStop` and `:IntellijServerRestart` only
+disconnect the local clients; other editors are unaffected.
+
+A Neovim that dies without a clean exit (SIGKILL, a crash) cannot stop the
+server: it keeps running until the next Neovim using it quits. Its lease is
+discarded as soon as another editor notices the pid is gone. When two editors
+start at the same moment, a spawn lock lets only one of them launch the
+server; the other waits for it.
+
+**Cleaning.** `:IntellijServerClean` stays project-scoped in socket mode: the
+server flushes and closes a workspace as soon as its client disconnects, so
+stopping the project's own connection is enough to free its cache files. They
+are deleted, the project reconnects and reimports — other projects and editors
+never notice. If another editor still has the *same* project open, its caches
+remain in use and the clean aborts (verified with `lsof` where available)
+instead of deleting files out from under a live server; close that editor
+first, or force the server down with `:IntellijServerStop!`.
+
+**Reconnect.** When a connection drops without the plugin having stopped it —
+the shared server was killed or crashed, typically `:IntellijServerRestart!`
+in another editor — each disconnected Neovim polls the port for up to five
+minutes and reattaches its buffers automatically once a server is listening
+again. The loop only probes, it never spawns: after a `:IntellijServerStop!`
+nothing resurrects the server behind your back.
+
+**Per-project settings.** `settings`, `projects`, `.intellij-server.lua` and
+`initializationOptions` travel with each LSP connection and keep working
+per-project. Options that configure the server *process* (`jvm_args`,
+`java_home`, `server_path`) only take effect for the instance that spawns it.
 
 ## Project JDK
 

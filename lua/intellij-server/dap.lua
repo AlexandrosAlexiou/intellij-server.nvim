@@ -1,5 +1,7 @@
 --- nvim-dap integration for IntelliJ LSP debugger.
 --- The IntelliJ server exposes a DAP server via workspace/executeCommand "start_debug_server".
+---@diagnostic disable-next-line: undefined-field
+local uv = vim.uv
 local M = {}
 
 local has_dap, dap = pcall(require, "dap")
@@ -45,7 +47,7 @@ end
 ---@param arguments table[]
 ---@param on_done fun(err: string?, result: any)
 function M.execute_command(client, command, arguments, on_done)
-  local timer = assert(vim.uv.new_timer())
+  local timer = assert(uv.new_timer())
   local finished = false
 
   local function finish(err, result)
@@ -442,9 +444,14 @@ function M.setup()
   dap.adapters.intellij = function(cb)
     M.start_debug_server(function(port)
       if port then
+        -- The DAP port is opened by the server process, so in socket mode it
+        -- lives on the shared server's host, not necessarily localhost.
+        local connection = require("intellij-server.connection")
+        local host = connection.connect_address()
+
         cb({
           type = "server",
-          host = "127.0.0.1",
+          host = host,
           port = port,
           -- Sent as `adapterID` in the initialize request. The server looks
           -- its debugger up by this id and refuses to start a session under

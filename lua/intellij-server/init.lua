@@ -42,6 +42,18 @@ local M = {}
 ---   folder as blocked (intellij/workspaceImportStatus) and does not import it.
 ---@field default_sdk string? JDK home the server uses for symbol resolution when a project pins none
 ---   (initializationOptions.defaultSdk, the VS Code `intellij.jdkForSymbolResolution` setting).
+---@field connection IntellijServerConnection? How the client talks to the server (default: stdio).
+
+---@class IntellijServerConnection
+---@field mode "stdio"|"socket"? "stdio" (default) spawns one server per project root, owned by this
+---   Neovim instance. "socket" connects to a single shared server over TCP (`--socket --multi-client`)
+---   that serves every project and every Neovim instance at once.
+---@field host string? Address of the shared server (default: "127.0.0.1"). A non-loopback host is
+---   connect-only: the plugin will never spawn a server there.
+---@field port integer? TCP port of the shared server (default: 9999, the server's own default).
+---@field autostart_server boolean? Spawn the shared server if nothing is listening (default: true).
+---@field connect_timeout_ms integer? How long to wait for a spawned server to accept connections
+---   (default: 60000). Cold JVM starts routinely take tens of seconds.
 M.defaults = {
   server_path = nil,
   java_home = nil,
@@ -100,6 +112,13 @@ M.defaults = {
   navigation = { enabled = true },
   dap = { enabled = true, build_before_launch = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
+  connection = {
+    mode = "stdio",
+    host = "127.0.0.1",
+    port = 9999,
+    autostart_server = true,
+    connect_timeout_ms = 60000,
+  },
 }
 
 ---@type IntellijServerConfig
@@ -195,11 +214,15 @@ function M.setup(opts)
     desc = "Use LSP folding for intellij-server buffers entering a window",
   })
 
-  -- Kill the full server process tree (launcher, jbr, maven) on exit
+  -- On exit, disconnect; and when this was the last editor using a server the
+  -- plugin spawned, stop it — the server never shuts itself down on its last
+  -- disconnect (see process.kill_if_idle).
   vim.api.nvim_create_autocmd("VimLeavePre", {
     group = vim.api.nvim_create_augroup("IntellijServerCleanup", { clear = true }),
     callback = function()
-      require("intellij-server.process").kill_all_clients()
+      local process = require("intellij-server.process")
+      process.kill_all_clients()
+      process.kill_if_idle()
     end,
     desc = "Kill IntelliJ server process tree on exit",
   })
@@ -276,14 +299,11 @@ function M.start(bufnr)
 
   local server = require("intellij-server.server")
   local process = require("intellij-server.process")
+  local connection = require("intellij-server.connection")
 
-  local server_bin = M.config.server_path or server.find_binary()
-  local cmd = server.build_cmd(server_bin)
-  if not server_bin or not cmd then
-    return
-  end
-
-  local server_dir = vim.fn.fnamemodify(server_bin, ":h:h") -- server/ directory
+  -- In socket mode the shared server is spawned (if needed) by
+  -- connection.ensure_server below; no per-project command is built and the
+  -- binary does not even need to exist locally when the host is remote.
   local root_dir = server.resolve_root(bufnr, M.config)
 
   local data_dir = process.data_dir()
@@ -423,15 +443,9 @@ function M.start(bufnr)
     end
   end
 
-  vim.lsp.start({
+  local lsp_config = {
     name = "intellij-server",
-    cmd = cmd,
-    -- libuv setsid()s the child, so the server is its own session/process-group
-    -- leader (PGID == PID) and process.kill_tree can take out its whole tree.
-    -- This is Neovim's default on Unix; pinned here because we rely on it.
-    detached = true,
-    cmd_env = server.build_env(server_dir, data_dir, M.config.java_home, M.config.jvm_args),
-    cmd_cwd = root_dir,
+    cmd = connection.lsp_cmd(),
     commands = lsp_commands,
     root_dir = root_dir,
     capabilities = capabilities,
@@ -456,13 +470,34 @@ function M.start(bufnr)
       attach_all_buffers(client)
     end,
     on_attach = M.config.on_attach,
-    init_options = init_options,
-  }, {
+    -- An empty Lua table encodes as `[]`, which the server rejects ("expected
+    -- a JSON object") along with every option in it.
+    init_options = next(init_options) ~= nil and init_options or vim.empty_dict(),
+    on_exit = function(_, _, client_id)
+      connection.on_client_exit(root_dir, client_id)
+    end,
+  }
+
+  local start_opts = {
     bufnr = bufnr,
     reuse_client = function(client, config)
       return client.name == config.name and client.config.root_dir == config.root_dir
     end,
-  })
+  }
+
+  connection.ensure_server(function(ok)
+    if not ok or not vim.api.nvim_buf_is_valid(bufnr) then
+      return
+    end
+
+    -- Tell other editors this one uses the server, so none of them stops it
+    -- on exit while we are still here.
+    connection.acquire_lease()
+
+    if lsp_config.cmd then
+      vim.lsp.start(lsp_config, start_opts)
+    end
+  end)
 end
 
 --- Clean all IntelliJ server indexes/caches and restart.

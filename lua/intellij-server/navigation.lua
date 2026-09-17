@@ -5,7 +5,8 @@
 --- Neovim cannot show a directory: with a single location it opens an empty
 --- buffer named after the path, and with several it fills the quickfix list with
 --- entries that all read `src/main/kotlin/org/pkl/core|1 col 1|`.
----
+---@diagnostic disable-next-line: undefined-field
+local uv = vim.uv
 local M = {}
 
 --- Set on the client instance once its requests are wrapped.
@@ -14,7 +15,7 @@ local wrapped = "intellij_server_navigation"
 ---@param path string
 ---@return boolean
 local function is_directory(path)
-  local stat = vim.uv.fs_stat(path)
+  local stat = uv.fs_stat(path)
   return stat ~= nil and stat.type == "directory"
 end
 

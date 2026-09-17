@@ -58,6 +58,9 @@ require("intellij-server").setup({
 })
 ```
 
+One shared server for all projects and Neovim instances, instead of one heavy
+IntelliJ process per project
+
 Every option — filetypes, project import, inlay hints, folding, code lenses, inline
 completion, the build log — is documented in **[docs/configuration.md](docs/configuration.md)**.
 
@@ -68,8 +71,8 @@ completion, the build log — is documented in **[docs/configuration.md](docs/co
 | `:IntellijServerInstall` | Download the server from JetBrains CDN |
 | `:IntellijServerUpdate` | Force re-download the server |
 | `:IntellijServerStart` | Start/attach the server for the current buffer |
-| `:IntellijServerStop` | Stop all running server instances |
-| `:IntellijServerRestart` | Restart the server |
+| `:IntellijServerStop` | Stop all running server instances (socket mode: `:IntellijServerStop!` also kills the shared server) |
+| `:IntellijServerRestart` | Restart the server (socket mode: `:IntellijServerRestart!` also restarts the shared server) |
 | `:IntellijServerClean` | Clean the current project's caches and restart |
 | `:IntellijServerVersion` | Show installed version info |
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
@@ -108,6 +111,11 @@ The server is started detached, so it leads its own process group: the JVM and
 Maven or Gradle processes it spawns share that group and are killed with it on
 `:IntellijServerStop`, `:IntellijServerRestart` and `:IntellijServerClean`, even
 after being reparented to PID 1.
+
+In [socket mode](docs/configuration.md#shared-server-socket-mode) the plugin instead connects to a single shared
+server (`--socket=<host>:<port> --multi-client`) over TCP, spawning it on demand. One process serves every project
+and every Neovim instance. The server does not exit on its own, so the last Neovim to quit stops it (on Windows,
+macOS and Linux alike), and `:IntellijServerStop!` force-kills it.
 
 The server binary is downloaded from JetBrains CDN. The plugin vendors binaries from the
 [JetBrains IntelliJ LSP VS Code extension](https://marketplace.visualstudio.com/items?itemName=JetBrains.intellij-server):

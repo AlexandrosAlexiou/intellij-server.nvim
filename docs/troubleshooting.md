@@ -155,6 +155,33 @@ overflowed, so delete them once you are done with them. Note that the JetBrains 
 `$HOME/java_error_in_intellij-server.hprof` and then refuses to overwrite that file, so a stale ~1 GB dump may be
 sitting in your home directory from before this was redirected.
 
+## Socket mode: Neovim can't reach the shared server
+
+Symptoms: `Shared server failed to start: timed out waiting for it to accept connections`, or `No server listening
+on <host>:<port>` with `autostart_server = false`.
+
+The first Neovim to need the server spawns it and waits `connect_timeout_ms` (default 60 s) for it to accept
+connections. On a slow machine or a cold start of a large install, raise the timeout. If the spawn itself failed,
+the launcher's output is in `~/.local/share/nvim/intellij-server/data/socket-server-launch.log` — a missing
+`--eula` hash, an expired preview build, or a port already bound by something that is not an intellij-server all
+end up there. Whatever else is bound to the port also causes the opposite failure: the probe succeeds, the LSP
+handshake doesn't. Pick a different `connection.port` in that case.
+
+A leftover server with warm indexes is reused by the next editor. The server never exits on its own; the last
+Neovim to quit cleanly stops it, so one is only left behind after a crash or `kill -9` of the last editor — and
+the next Neovim adopts it and stops it on exit. If a wedged one is stuck around, `:IntellijServerStop!` kills it
+(pidfile first, then a lookup by command line for servers started by hand: `pgrep -f` on macOS/Linux, PowerShell's
+`Get-CimInstance` on Windows) and the next `:IntellijServerStart` respawns it.
+
+When the shared server goes away underneath a connected editor (`:IntellijServerRestart!` elsewhere, a crash),
+that editor reports the lost connection and reattaches automatically once a server is listening again, polling for
+up to five minutes. After `:IntellijServerStop!` nothing respawns it on its own — the next `:IntellijServerStart`
+(or opening a Java/Kotlin file) does. `:IntellijServerClean` does not touch the shared server at all: it only
+disconnects, cleans and reimports the one project, and refuses to delete caches another editor still has open.
+
+Remember that `jvm_args`/`java_home` only apply when the plugin spawns the server, and `:IntellijServerClean`
+disconnects every editor sharing it.
+
 ## JPS projects: the wrong JDK is picked
 
 Only JPS (`.idea`) projects are affected by the `misc.xml` mechanism below. For Maven and Gradle projects, pin the
