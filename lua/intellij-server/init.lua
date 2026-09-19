@@ -64,32 +64,34 @@ M.defaults = {
   autostart = true,
   on_attach = nil,
   capabilities = nil,
-	-- Server-side hint categories default to OFF unless the client answers
-	-- workspace/configuration. The server string-matches the flattened keys
-	-- against IntelliJ's declarative inlay hint optionIds — note four of these
-	-- deliberately differ from the VS Code extension's package.json, which
-	-- contributes bundle nameKeys (hints.settings.types.property, ...) the
-	-- server never matches.
-	-- stylua: ignore
-	settings = {
-		["jetbrains.kotlin.hints.parameters"] = true,
-		["jetbrains.kotlin.hints.parameters.compiled"] = true,
-		["jetbrains.kotlin.hints.parameters.excluded"] = false,
-		["jetbrains.kotlin.hints.parameters.context"] = false,
-		["jetbrains.kotlin.hints.type.property"] = true,
-		["jetbrains.kotlin.hints.type.variable"] = true,
-		["jetbrains.kotlin.hints.type.function.return"] = true,
-		["jetbrains.kotlin.hints.type.function.parameter"] = true,
-		["jetbrains.kotlin.hints.lambda.return"] = true,
-		["jetbrains.kotlin.hints.lambda.receivers.parameters"] = true,
-		["jetbrains.kotlin.hints.value.ranges"] = true,
-		["jetbrains.kotlin.hints.value.kotlin.time"] = true,
-		["jetbrains.kotlin.hints.call.chains"] = false,
-		["jetbrains.java.hints.collapse complex types"] = true,
-		["jetbrains.java.hints.settings.method parameter"] = true,
-		["jetbrains.java.hints.types.local variable"] = true,
-		["jetbrains.java.hints.types.call chain"] = true,
-	},
+  -- Server-side hint categories default to OFF unless the client answers
+  -- workspace/configuration. The server string-matches the flattened keys
+  -- against IntelliJ's declarative inlay hint optionIds — note four of these
+  -- deliberately differ from the VS Code extension's package.json, which
+  -- contributes bundle nameKeys (hints.settings.types.property, ...) the
+  -- server never matches.
+  -- stylua: ignore
+  settings = {
+    -- Kotlin inlay hint categories
+    ["jetbrains.kotlin.hints.parameters"] = true,                  -- parameter names
+    ["jetbrains.kotlin.hints.parameters.compiled"] = true,         -- parameter names from compiled code
+    ["jetbrains.kotlin.hints.parameters.excluded"] = false,        -- parameter names for excluded methods
+    ["jetbrains.kotlin.hints.parameters.context"] = false,         -- context/receiver parameter names
+    ["jetbrains.kotlin.hints.type.property"] = true,               -- property types
+    ["jetbrains.kotlin.hints.type.variable"] = true,               -- local variable types
+    ["jetbrains.kotlin.hints.type.function.return"] = true,        -- function return types
+    ["jetbrains.kotlin.hints.type.function.parameter"] = true,     -- function parameter types
+    ["jetbrains.kotlin.hints.lambda.return"] = true,               -- lambda return types
+    ["jetbrains.kotlin.hints.lambda.receivers.parameters"] = true, -- lambda receivers/parameters
+    ["jetbrains.kotlin.hints.value.ranges"] = true,                -- value ranges
+    ["jetbrains.kotlin.hints.value.kotlin.time"] = true,           -- kotlin.time values
+    ["jetbrains.kotlin.hints.call.chains"] = false,                -- call-chain intermediate types
+    -- Java inlay hint categories
+    ["jetbrains.java.hints.settings.method parameter"] = true,     -- parameter names
+    ["jetbrains.java.hints.types.local variable"] = true,          -- local variable types
+    ["jetbrains.java.hints.collapse complex types"] = true,        -- collapse complex types
+    ["jetbrains.java.hints.types.call chain"] = true,              -- call-chain types
+  },
   inlay_hints = { enabled = true },
   folding = { enabled = true },
   code_lens = { enabled = true },
