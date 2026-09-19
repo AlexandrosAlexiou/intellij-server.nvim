@@ -219,30 +219,70 @@ function M.setup()
   if autocmd_created then
     return
   end
+
   autocmd_created = true
+
+  local group = vim.api.nvim_create_augroup("IntellijServerSemanticTokens", { clear = true })
+
   vim.api.nvim_create_autocmd("LspProgress", {
-    group = vim.api.nvim_create_augroup("IntellijServerSemanticTokens", { clear = true }),
+    group = group,
+
     callback = function(ev)
-      local client = vim.lsp.get_client_by_id(ev.data.client_id)
-      if not client or client.name ~= "intellij-server" then
-        progress[ev.data.client_id] = nil
+      local data = ev.data
+      if not data or not data.client_id then
         return
       end
-      local params = ev.data.params
-      local value = params.value or {}
-      local by_token = progress[client.id] or {}
-      progress[client.id] = by_token
+
+      local client = vim.lsp.get_client_by_id(data.client_id)
+      if not client or client.name ~= "intellij-server" then
+        progress[data.client_id] = nil
+        return
+      end
+
+      local params = data.params
+      if not params or not params.token then
+        return
+      end
+
+      local value = params.value
+      if type(value) ~= "table" then
+        return
+      end
+
+      local by_token = progress[client.id]
+
+      if not by_token then
+        by_token = {}
+        progress[client.id] = by_token
+      end
+
       if value.kind == "begin" then
         by_token[params.token] = value.title
-      elseif value.kind == "end" then
-        local title = by_token[params.token]
-        by_token[params.token] = nil
-        if title == "Indexing" then
-          local refresh = vim.lsp.handlers["workspace/semanticTokens/refresh"]
-          pcall(refresh, nil, nil, { client_id = client.id })
-        end
+        return
       end
+
+      if value.kind ~= "end" then
+        return
+      end
+
+      local title = by_token[params.token]
+      by_token[params.token] = nil
+
+      if title ~= "Indexing" then
+        return
+      end
+
+      local refresh = vim.lsp.handlers["workspace/semanticTokens/refresh"]
+      if not refresh then
+        return
+      end
+
+      pcall(refresh, nil, nil, {
+        client_id = client.id,
+        method = "workspace/semanticTokens/refresh",
+      })
     end,
+
     desc = "Refresh semantic tokens once indexing ends",
   })
 end
