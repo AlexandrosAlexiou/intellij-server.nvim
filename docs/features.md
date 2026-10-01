@@ -77,14 +77,19 @@ on its own client instead, which leaves every other LSP client alone. It covers
 
 ## Completion insertion fix
 
-The server does not put the inserted text in its completion items. Each item
-carries an empty `textEdit` plus a `jetbrains.java.completion.apply` /
+Some completion items do not carry the inserted text. They come with an empty
+`textEdit` plus a `jetbrains.java.completion.apply` /
 `jetbrains.kotlin.completion.apply` command, and the server applies the real
 text + caret afterwards via `workspace/applyEdit` and `window/showDocument`.
 VS Code's client inserts nothing on accept and lets the command do the work, so
 it just works there. Neovim frontends (builtin completion, nvim-cmp, blink.cmp)
 insert the item text *and* run the command, so the server's edit lands on top
 and the caret ends up mid-identifier (accepting `App` produces `Ap|p`).
+
+Since server 0.0.12, ordinary Java items (classes with their import, members,
+…) instead carry a real snippet `textEdit` and no command, and
+`completionItem/resolve` echoes the item unchanged. Those are passed through
+as they are.
 
 The plugin fixes this automatically by making Neovim behave like the VS Code
 client: it turns the client's own insertion into a no-op and keeps the apply
@@ -124,6 +129,13 @@ buffer's existing leading whitespace is kept, and inner lines use `\t` per
 indent level, which `vim.snippet` (used by builtin completion, nvim-cmp and
 blink.cmp) materializes according to `'shiftwidth'`/`'expandtab'`. Template
 expansions follow your buffer's indentation. No configuration required.
+
+The rewritten edits are remembered per item by the edit the server sent, so
+`completionItem/resolve` can hand the same rewrite back. Keying them by label,
+as an earlier version did, mixed up same-named items: on a fresh indented line
+every `List` the server offers (`java.util.List`, `RequiresNonNull.List`,
+`NotNull.List`, …) shares the label `List`, and accepting any of them inserted
+the text of the last one.
 
 ## Semantic token overlap fix
 

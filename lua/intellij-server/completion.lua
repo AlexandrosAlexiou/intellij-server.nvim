@@ -51,10 +51,25 @@ local SERVER_INDENT = 4
 local noop_edits = {}
 local last_edit = nil
 
--- Re-anchored live template edits for the most recent completion list, keyed
--- by label, so `completionItem/resolve` can restore them instead of
--- re-transforming (the rewrite is not idempotent).
-local template_edits = {}
+-- Re-anchored snippet edits for the most recent completion list, so
+-- `completionItem/resolve` can restore them instead of re-transforming (the
+-- rewrite is not idempotent). Keyed by the server's *original* edit (range +
+-- text), never by label: a label is shared by every `Foo.List` annotation
+-- container and by every overload of a method, so a label-keyed cache handed
+-- the last same-named item's text to whichever one was accepted (choosing
+-- `java.util.List` inserted `RequiresNonNull.List`). `template_patched` marks
+-- the rewritten edits themselves, which a client sends back verbatim when the
+-- server's resolve echoes the item unchanged (Java on server 0.0.12).
+local template_edits = {} ---@type table<string, { edit: lsp.TextEdit, filterText: string? }>
+local template_patched = {} ---@type table<string, true>
+
+-- Identity of a text edit: where it applies and what it inserts.
+---@param edit lsp.TextEdit
+---@return string
+local function edit_key(edit)
+  local r = edit.range
+  return ("%d:%d-%d:%d:%s"):format(r.start.line, r.start.character, r["end"].line, r["end"].character, edit.newText)
+end
 
 -- True for items that defer their insertion to the server's apply command
 -- (jetbrains.java.completion.apply / jetbrains.kotlin.completion.apply).
@@ -93,8 +108,10 @@ local function noop_prefix_edit(params)
   }
 end
 
--- Live template items (sout, fori, psvm, …) are the only ones whose textEdit
--- carries real snippet text instead of deferring to the apply command.
+-- Items whose textEdit carries real snippet text instead of deferring to the
+-- apply command: live templates (sout, fori, psvm, …) and, since server 0.0.12,
+-- every ordinary Java item (classes with their import, members, …). Only the
+-- indent-anchored ones are rewritten below; the rest pass through unchanged.
 local function is_template_snippet(item)
   return type(item) == "table"
     and not is_command_driven(item)
@@ -143,6 +160,7 @@ local function reindent_template_edit(item, params)
     return
   end
 
+  local original = edit_key(edit)
   local lines = vim.split(edit.newText, "\n", { plain = true })
   local pad = lines[1]:match("^[ \t]*")
 
@@ -166,7 +184,8 @@ local function reindent_template_edit(item, params)
     end
   end
 
-  template_edits[tostring(item.label)] = { edit = edit, filterText = item.filterText }
+  template_edits[original] = { edit = vim.deepcopy(edit), filterText = item.filterText }
+  template_patched[edit_key(edit)] = true
 end
 
 -- Turn each command-driven item's own insertion into a no-op, keeping the apply
@@ -181,6 +200,7 @@ local function patch_completion(result, params)
   noop_edits = {}
   last_edit = nil
   template_edits = {}
+  template_patched = {}
   for _, item in ipairs(items) do
     if is_command_driven(item) then
       edit = edit or noop_prefix_edit(params)
@@ -198,14 +218,21 @@ local function patch_completion(result, params)
 end
 
 -- `completionItem/resolve` re-sends the empty server edit; restore our no-op so
--- the client still inserts nothing and defers to the command. Live template
--- items get their re-anchored edit back for the same reason. Documentation and
--- other resolved fields are left untouched.
+-- the client still inserts nothing and defers to the command. Snippet items get
+-- their re-anchored edit back for the same reason — matched by the edit the
+-- server sent, so same-labelled items never trade texts. An edit we already
+-- rewrote (the server echoed the item as the client holds it) is left alone, and
+-- so is anything the server resolved to something new. Documentation and other
+-- resolved fields are left untouched.
 local function patch_resolve(result)
   if is_template_snippet(result) then
-    local saved = template_edits[tostring(result.label)]
+    local key = edit_key(result.textEdit)
+    if template_patched[key] then
+      return
+    end
+    local saved = template_edits[key]
     if saved then
-      result.textEdit = saved.edit
+      result.textEdit = vim.deepcopy(saved.edit)
       result.filterText = saved.filterText
     end
     return
