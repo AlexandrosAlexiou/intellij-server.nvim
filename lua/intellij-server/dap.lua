@@ -9,13 +9,10 @@ local COMMAND_TIMEOUT_MS = 30000
 
 --- Code lens command the server emits for main entry points when
 --- initializationOptions.runMainCodeLens is on (see intellij-server.start).
---- Server 0.0.12 renamed it from `intellij_debugger.runMain` to
---- `intellij.jvm.runMain`; both are dispatched so either server works.
-M.RUN_MAIN_COMMANDS = { "intellij.jvm.runMain", "intellij_debugger.runMain" }
-M.RUN_MAIN_COMMAND = M.RUN_MAIN_COMMANDS[1]
+M.RUN_MAIN_COMMAND = "intellij.jvm.runMain"
 
---- Build tools whose own launch the server can drive (server 0.0.12+:
---- `intellij.java.resolveBuildToolLaunch` reports the tool id). Gradle
+--- Build tools whose own launch the server can drive
+--- (`intellij.java.resolveBuildToolLaunch` reports the tool id). Gradle
 --- compiles as part of running, so a launch through it needs no build step.
 local BUILD_TOOL_LAUNCHERS = { gradle = true }
 
@@ -47,7 +44,7 @@ end
 ---@param command string
 ---@param arguments table[]
 ---@param on_done fun(err: string?, result: any)
-local function execute_command(client, command, arguments, on_done)
+function M.execute_command(client, command, arguments, on_done)
   local timer = assert(vim.uv.new_timer())
   local finished = false
 
@@ -70,6 +67,33 @@ local function execute_command(client, command, arguments, on_done)
   client:request("workspace/executeCommand", { command = command, arguments = arguments }, function(err, result)
     finish(err and (err.message or vim.inspect(err)) or nil, result)
   end, 0)
+end
+
+--- Compile the module owning `uri` with its build tool (Maven/Gradle/Bazel/JPS,
+--- whatever `intellij.java.resolveBuildCommand` says), streaming the output to
+--- the build log — the VS Code extension's pre-launch build task. Nothing to
+--- build, or no way to ask, counts as built: what is already compiled runs,
+--- the same fallback the VS Code lens takes.
+---@param client vim.lsp.Client
+---@param uri string
+---@param on_done fun(ok: boolean)
+function M.build_module(client, uri, on_done)
+  M.execute_command(client, "intellij.java.resolveBuildCommand", { { uri = uri } }, function(err, resolved)
+    if err then
+      notify(("build skipped, intellij.java.resolveBuildCommand failed: %s"):format(err), vim.log.levels.WARN)
+      on_done(true)
+      return
+    end
+    if type(resolved) ~= "table" or not resolved.supported or type(resolved.command) ~= "table" or #resolved.command == 0 then
+      on_done(true)
+      return
+    end
+    require("intellij-server.build-log").run({
+      tool = resolved.tool,
+      command = resolved.command,
+      cwd = resolved.cwd,
+    }, on_done)
+  end)
 end
 
 --- Start the debug server and return the port.
@@ -106,9 +130,9 @@ function M.start_debug_server(callback)
 end
 
 --- Fill in what a launch configuration leaves out, from the project model.
---- This mirrors the VS Code extension's launch resolution (dap.ts, server
---- 0.0.12+): the adapter only ever receives fully resolved arguments, which is
---- why `mainClass` (or a `file`) is enough to launch anything.
+--- This mirrors the VS Code extension's launch resolution (dap.ts): the
+--- adapter only ever receives fully resolved arguments, which is why
+--- `mainClass` (or a `file`) is enough to launch anything.
 ---
 ---   file      -> intellij.java.resolveClassDocument { fqn }
 ---
@@ -128,11 +152,11 @@ end
 ---                allow it — a JVM launch compiles nothing by itself.
 ---             -> intellij.java.resolveLaunch { uri, cwd, overrides }
 ---                -> javaExec, classPaths, modulePaths, moduleName,
----                   moduleContentPaths, cwd in one answer. The server merges
----                   the configuration's own values (`overrides`) itself.
+---                   moduleContentPaths, cwd, vmArgs in one answer. The server
+---                   merges the configuration's own values (`overrides`) itself.
 ---
---- The per-fragment commands of server 0.0.10 (`intellij.java.resolveClasspath`,
---- `resolveWorkingDirectory`, `resolveJavaExecutable`) no longer exist.
+--- Test launches (intellij-server.tests) arrive already resolved and pass
+--- through untouched.
 ---
 --- Called by nvim-dap through the adapter's enrich_config hook. Not calling
 --- on_config aborts the session, which is what we do on resolution errors.
@@ -140,7 +164,7 @@ end
 ---@param on_config fun(config: table)
 function M.enrich_config(config, on_config)
   -- Attach configurations carry everything they need (a JDWP host and port).
-  if config.request ~= "launch" then
+  if config.request ~= "launch" or config.jvmTest then
     on_config(config)
     return
   end
@@ -182,7 +206,7 @@ function M.enrich_config(config, on_config)
   end
 
   local function resolve_build_tool(uri, on_done)
-    execute_command(client, "intellij.java.resolveBuildToolLaunch", { { uri = uri, mainClass = config.mainClass } }, on_done)
+    M.execute_command(client, "intellij.java.resolveBuildToolLaunch", { { uri = uri, mainClass = config.mainClass } }, on_done)
   end
 
   --- JVM launch: everything `java` needs, resolved in one request.
@@ -196,12 +220,13 @@ function M.enrich_config(config, on_config)
       modulePaths = non_empty(config.modulePaths),
       moduleName = config.moduleName,
       javaExec = config.javaExec,
+      vmArgs = non_empty(config.vmArgs),
     }
     if next(overrides) == nil then
       overrides = vim.empty_dict()
     end
     local request = { uri = uri, cwd = config.cwd, overrides = overrides }
-    execute_command(client, "intellij.java.resolveLaunch", { request }, function(err, paths)
+    M.execute_command(client, "intellij.java.resolveLaunch", { request }, function(err, paths)
       if err then
         fail("intellij.java.resolveLaunch failed: " .. err)
         return
@@ -229,40 +254,25 @@ function M.enrich_config(config, on_config)
       if paths.javaExec then
         config.javaExec = paths.javaExec
       end
+      -- The configuration's own vmArgs, merged with the module's.
+      config.vmArgs = non_empty(paths.vmArgs) or config.vmArgs
       finish()
     end)
   end
 
-  --- Compile the module first (Maven/Gradle/Bazel/JPS, whatever the server
-  --- says), then launch. Nothing to build, or no way to ask, launches what is
-  --- already compiled — the same fallback the VS Code lens takes.
+  --- Compile the module first, then launch.
   local function build_then_jvm(uri)
     local wanted = (require("intellij-server").config.dap or {}).build_before_launch ~= false
     if config.build == false or (config.build == nil and not wanted) then
       resolve_jvm(uri)
       return
     end
-    execute_command(client, "intellij.java.resolveBuildCommand", { { uri = uri } }, function(err, resolved)
-      if err then
-        notify(("build skipped, intellij.java.resolveBuildCommand failed: %s"):format(err), vim.log.levels.WARN)
+    M.build_module(client, uri, function(ok)
+      if ok then
         resolve_jvm(uri)
-        return
+      else
+        fail("the build failed — see :IntellijServerBuildLog")
       end
-      if type(resolved) ~= "table" or not resolved.supported or type(resolved.command) ~= "table" or #resolved.command == 0 then
-        resolve_jvm(uri)
-        return
-      end
-      require("intellij-server.build-log").run({
-        tool = resolved.tool,
-        command = resolved.command,
-        cwd = resolved.cwd,
-      }, function(ok)
-        if ok then
-          resolve_jvm(uri)
-        else
-          fail("the build failed — see :IntellijServerBuildLog")
-        end
-      end)
     end)
   end
 
@@ -306,7 +316,7 @@ function M.enrich_config(config, on_config)
     return
   end
 
-  execute_command(client, "intellij.java.resolveClassDocument", { { fqn = config.mainClass } }, function(err, result)
+  M.execute_command(client, "intellij.java.resolveClassDocument", { { fqn = config.mainClass } }, function(err, result)
     local uri = type(result) == "table" and result.uri or nil
     if err or not uri then
       notify(("Cannot start debugging: no source file for %s%s"):format(config.mainClass, err and (": " .. err) or ""))
@@ -388,8 +398,8 @@ end
 
 --- Attach the debugger to a JVM started with
 --- -agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:<port>
---- Server 0.0.12 reads `hostName` (default localhost), `port` and `timeout`
---- (ms, default 30000); 0.0.10 read only the port.
+--- The server reads `hostName` (default localhost), `port` and `timeout`
+--- (ms, default 30000).
 ---@param port integer|string|nil Defaults to 5005.
 ---@param host string? Defaults to localhost.
 function M.attach(port, host)
@@ -412,13 +422,11 @@ end
 --- dispatches them (see :h vim.lsp.ClientConfig).
 ---@return table<string, fun(command: lsp.Command, ctx: table)>
 function M.lsp_commands()
-  local commands = {}
-  for _, name in ipairs(M.RUN_MAIN_COMMANDS) do
-    commands[name] = function(command)
+  return {
+    [M.RUN_MAIN_COMMAND] = function(command)
       M.run_main((command.arguments or {})[1])
-    end
-  end
-  return commands
+    end,
+  }
 end
 
 --- Register the IntelliJ debugger adapter with nvim-dap.
@@ -450,8 +458,8 @@ function M.setup()
 
   -- Default configurations for Java and Kotlin.
   --
-  -- Launch properties (server 0.0.12+). The first block is ours, resolved
-  -- before the adapter sees the configuration (see enrich_config):
+  -- Launch properties. The first block is ours, resolved before the adapter
+  -- sees the configuration (see enrich_config):
   --   launcher    ("jvm"|"gradle"|"auto") how the program runs. "jvm"
   --               (default) spawns `java` with the resolved classpath after
   --               building the module; "gradle" hands the launch to Gradle,
@@ -483,10 +491,11 @@ function M.setup()
   --   buildToolTarget (table) server-resolved for gradle launches: what the
   --               adapter turns into Gradle's own compile-and-run command
   --   noDebug     (boolean)   run without attaching the debugger
-  --   console     ("internalConsole"|"integratedTerminal"|"externalTerminal")
+  --   console     ("internalConsole"|"integratedTerminal"|"externalTerminal"|"none")
   --               where to run the program. Default: "integratedTerminal" —
   --               the adapter sends a DAP runInTerminal reverse request,
-  --               which nvim-dap answers by opening a terminal buffer.
+  --               which nvim-dap answers by opening a terminal buffer. "none"
+  --               (test runs) delivers stdout as DAP output events instead.
   --
   -- Everything except mainClass is resolved from the project model when left
   -- out, so the defaults below are enough for most programs.

@@ -78,8 +78,7 @@ function M.build_cmd(server_path)
   end
 
   local args = { bin, "--stdio" }
-  -- Since 0.0.10 the server refuses to start unless the accepted EULA hash is
-  -- passed via --eula (previously initializationOptions.eulaHash).
+  -- The server refuses to start unless the accepted EULA hash is passed.
   local eula = M.eula_hash(vim.fn.fnamemodify(bin, ":h:h"))
   if eula then
     table.insert(args, "--eula")
@@ -89,10 +88,8 @@ function M.build_cmd(server_path)
   return args
 end
 
---- Compute the EULA acceptance hash the server requires.
---- Hash = first 16 chars of SHA-256 of server/EULA.txt.
---- Up to server 0.0.8 this was sent as initializationOptions.eulaHash; since
---- 0.0.10 it must be passed as the `--eula` command-line option instead.
+--- Compute the EULA acceptance hash the server requires as its `--eula`
+--- command-line option: the first 16 chars of SHA-256 of server/EULA.txt.
 ---@param server_dir string The server/ directory next to the binary.
 ---@return string?
 function M.eula_hash(server_dir)

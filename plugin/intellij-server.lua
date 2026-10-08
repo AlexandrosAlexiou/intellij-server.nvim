@@ -70,6 +70,20 @@ end, {
   desc = "Run a main class with optional arguments (! to debug it) — requires nvim-dap",
 })
 
+vim.api.nvim_create_user_command("IntellijServerTest", function(cmd_opts)
+  require("intellij-server.tests").run({
+    scope = cmd_opts.args ~= "" and cmd_opts.args or "cursor",
+    debug = cmd_opts.bang,
+  })
+end, {
+  nargs = "?",
+  bang = true,
+  complete = function()
+    return { "cursor", "file", "module" }
+  end,
+  desc = "Run the test at the cursor, or of the file or module (! to debug it) — requires nvim-dap",
+})
+
 vim.api.nvim_create_user_command("IntellijServerAttach", function(cmd_opts)
   require("intellij-server.dap").attach(cmd_opts.args)
 end, { nargs = "?", desc = "Attach the debugger to a JVM on a JDWP port (default 5005)" })

@@ -1,8 +1,8 @@
 return {
-  version = "0.0.12",
-  build = "263.4702.0",
+  version = "0.0.13",
+  build = "263.6379.0",
   product = "2026.3",
-  base_url = "https://download-cdn.jetbrains.com/language-server/intellij-server",
+  base_url = "https://download.jetbrains.com/language-server/intellij-server",
   -- CDN platform key -> uname sysname and normalized arch (see installer.lua).
   platforms = {
     ["linux-amd64"] = { os = "Linux", arch = "x64" },
