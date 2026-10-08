@@ -77,6 +77,7 @@ completion, the build log — is documented in **[docs/configuration.md](docs/co
 | `:IntellijServerVersion` | Show installed version info |
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
+| `:IntellijServerLibraries` | Browse dependency and JDK sources as an External Libraries tree in oil.nvim (`!` re-reads the workspace) |
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
 | `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
 | `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
@@ -89,8 +90,9 @@ Java and Kotlin support from the same engine IntelliJ IDEA runs on: completion,
 diagnostics, navigation, refactoring, formatting, inlay hints and code lenses —
 all through Neovim's built-in LSP client. On top of that the
 plugin supplies the client-side pieces the server expects an IDE to provide:
-package navigation, completion insertion, the prompts refactorings ask with,
-formatting, file templates, and running, debugging and testing through nvim-dap.
+package navigation, an External Libraries node in the snacks explorer and oil, completion insertion,
+the prompts refactorings ask with, formatting, file templates, and running, debugging and testing
+through nvim-dap.
 
 ## Documentation
 

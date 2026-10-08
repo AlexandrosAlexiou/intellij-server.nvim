@@ -102,6 +102,12 @@ require("intellij-server").setup({
   -- Package navigation: open package definitions as a directory listing
   navigation = { enabled = true },
 
+  -- External Libraries (:IntellijServerLibraries and the snacks explorer).
+  -- compact_packages folds chains of single-child packages into one entry
+  -- ("org.springframework"). explorer adds an "External Libraries" node to the
+  -- snacks.nvim explorer.
+  libraries = { compact_packages = true, explorer = true },
+
   -- nvim-dap debugger integration: launching, attaching, tests. Also turns on
   -- the server's Run/Debug code lenses above main methods
   -- (initializationOptions.runMainCodeLens).

@@ -43,6 +43,7 @@ local M = {}
 ---@field default_sdk string? JDK home the server uses for symbol resolution when a project pins none
 ---   (initializationOptions.defaultSdk, the VS Code `intellij.jdkForSymbolResolution` setting).
 ---@field connection IntellijServerConnection? How the client talks to the server (default: stdio).
+---@field libraries IntellijLibraryOpts? External Libraries tree (:IntellijServerLibraries).
 
 ---@class IntellijServerConnection
 ---@field mode "stdio"|"socket"? "stdio" (default) spawns one server per project root, owned by this
@@ -111,6 +112,7 @@ M.defaults = {
   code_lens = { enabled = true, tests = true },
   navigation = { enabled = true },
   dap = { enabled = true, build_before_launch = true },
+  libraries = { compact_packages = true, explorer = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
   connection = {
     mode = "stdio",
@@ -265,6 +267,9 @@ function M.setup(opts)
 
   local lens = M.config.code_lens or {}
   require("intellij-server.code-lens").setup(vim.tbl_extend("force", lens, { tests = lens.tests ~= false and dap_enabled() }))
+
+  -- External Libraries tree (oil-intellij:// directories).
+  require("intellij-server.libraries").setup(M.config.libraries)
 
   if dap_enabled() then
     require("intellij-server.dap").setup()

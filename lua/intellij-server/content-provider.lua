@@ -46,6 +46,11 @@ function M.to_uri(bufname)
   if jar_rest then
     return "jar:" .. jar_rest
   end
+  -- jrt:///<jdk home>!/<module>/... (absolute JDK path) is what the server
+  -- accepts as is; only the jrt:/<module> form was rewritten by to_bufname.
+  if bufname:match("^jrt:///") then
+    return bufname
+  end
   local jrt_rest = bufname:match("^jrt://(.*)$")
   if jrt_rest then
     return "jrt:/" .. jrt_rest
@@ -54,34 +59,40 @@ function M.to_uri(bufname)
 end
 
 --- Synchronously fetch decompiled content for a server URI.
+--- The server only serves archives of its own workspace model and answers null
+--- for anything else, so with several projects (one client each) every client
+--- is asked until one knows the file.
 ---@param uri string
 ---@return string? content
 ---@return string? err
+---@return vim.lsp.Client? client The client that served it.
 local function fetch_content(uri)
   local clients = vim.lsp.get_clients({ name = "intellij-server" })
   if #clients == 0 then
     return nil, "LSP not running"
   end
 
-  local response = clients[1]:request_sync("workspace/executeCommand", {
-    command = "decompile",
-    arguments = { uri },
-  }, 10000, 0)
+  local err = "empty response (the server returns none until indexing finishes)"
+  for _, client in ipairs(clients) do
+    local response = client:request_sync("workspace/executeCommand", {
+      command = "decompile",
+      arguments = { uri },
+    }, 10000, 0)
 
-  if not response then
-    return nil, "timeout"
+    if not response then
+      err = "timeout"
+    elseif response.err then
+      err = vim.inspect(response.err)
+    else
+      local result = response.result
+      if type(result) == "string" then
+        return result, nil, client
+      elseif type(result) == "table" and (result.code or result.text) then
+        return result.code or result.text, nil, client
+      end
+    end
   end
-  if response.err then
-    return nil, vim.inspect(response.err)
-  end
-
-  local result = response.result
-  if type(result) == "string" then
-    return result, nil
-  elseif type(result) == "table" and (result.code or result.text) then
-    return result.code or result.text, nil
-  end
-  return nil, "empty response"
+  return nil, err
 end
 
 --- Populate a virtual buffer with decompiled content and set it up.
@@ -89,7 +100,7 @@ end
 local function populate(bufnr)
   local uri = M.to_uri(vim.api.nvim_buf_get_name(bufnr))
 
-  local content, err = fetch_content(uri)
+  local content, err, served_by = fetch_content(uri)
   if not content then
     vim.notify("[intellij-server] Failed to decompile: " .. (err or "unknown"), vim.log.levels.WARN)
     content = "// Failed to load decompiled content: " .. (err or "unknown")
@@ -101,7 +112,12 @@ local function populate(bufnr)
   vim.bo[bufnr].modified = false
   vim.bo[bufnr].readonly = true
   vim.bo[bufnr].swapfile = false
-  vim.bo[bufnr].buflisted = true
+  -- A snacks preview (it marks the buffers it loads, e.g. the explorer's
+  -- preview of a library file) should not leave every previewed file in the
+  -- buffer list; opening it lists it.
+  if not vim.b[bufnr].snacks_picker_loaded then
+    vim.bo[bufnr].buflisted = true
+  end
 
   local lang = uri:match("%.kt$") and "kotlin" or "java"
   vim.bo[bufnr].filetype = lang
@@ -109,9 +125,9 @@ local function populate(bufnr)
 
   -- Attach the LSP client; the patched vim.uri_from_bufnr translates the
   -- buffer name back to the server URI for didOpen and all requests.
-  local clients = vim.lsp.get_clients({ name = "intellij-server" })
-  if #clients > 0 then
-    vim.lsp.buf_attach_client(bufnr, clients[1].id)
+  local client = served_by or vim.lsp.get_clients({ name = "intellij-server" })[1]
+  if client then
+    vim.lsp.buf_attach_client(bufnr, client.id)
   end
 end
 

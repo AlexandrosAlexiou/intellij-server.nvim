@@ -103,3 +103,7 @@ end, { nargs = "?", desc = "Attach the debugger to a JVM on a JDWP port (default
 vim.api.nvim_create_user_command("IntellijServerFormat", function(cmd_opts)
   require("intellij-server").format({ async = cmd_opts.bang })
 end, { bang = true, desc = "Format the buffer with IntelliJ's code-style engine (! to run async)" })
+
+vim.api.nvim_create_user_command("IntellijServerLibraries", function(cmd_opts)
+  require("intellij-server.libraries").open({ refresh = cmd_opts.bang })
+end, { bang = true, desc = "Browse the project's External Libraries in oil (! to re-read the workspace)" })

@@ -94,6 +94,65 @@ in a `textDocument/definition` entry in `handlers` — the plugin wraps the requ
 on its own client instead, which leaves every other LSP client alone. It covers
 `textDocument/definition`, `typeDefinition`, `declaration` and `implementation`.
 
+## External Libraries
+
+`:IntellijServerLibraries` opens the IDE's External Libraries node in
+[oil.nvim](https://github.com/stevearc/oil.nvim): one directory per library of
+the imported project, plus the project JDK as `< 25.0.4 >`. Browse it like any
+oil listing and open a file with `<CR>`. Files open as the same `jar://` buffers
+go to definition produces, so highlighting, hover and navigation work inside
+them.
+
+From a library file, the command opens on that file's directory with the
+cursor on it. `-` walks up to the library list, and from there to the project
+directory. `:IntellijServerLibraries!` re-reads the workspace, and listing the
+top level again does the same, so a re-import shows up.
+
+### In the snacks explorer
+
+With [snacks.nvim](https://github.com/folke/snacks.nvim)'s explorer, the
+project root gets an **External Libraries** node below its files, as in the
+IDE's Project view. Expand it with `l` or `<CR>` to see the libraries and the
+JDK, then their packages and files. `h` collapses, `<CR>` on a file opens it in
+the main window, and the preview shows it. Opening a library file any other
+way, such as with go to definition, reveals it under the node when the
+explorer follows the current file. Add, delete, rename, move, copy and paste
+refuse on library rows. Set `libraries = { explorer = false }` to hide the
+node.
+
+The node appears when the explorer's directory is inside a project the server
+has open. Searching in the explorer covers project files only.
+
+### How the tree is shown
+
+Each library's classes and sources archives are shown as one tree:
+
+- a class with a matching source file is shown as the source only, because the
+  server decompiles classes to signature stubs without method bodies;
+- inner classes (`Outer$Inner.class`) are hidden;
+- chains of single-child packages are folded into one entry, as in the IDE
+  (`org.springframework`). Set `libraries = { compact_packages = false }` to
+  keep one directory per segment;
+- the JDK shows `lib/src.zip` when it is installed, and the class list of
+  `lib/modules` otherwise.
+
+### How it works
+
+The server has no request that lists libraries or archive contents. Its `exportWorkspace` command writes the imported workspace model,
+with each library's class and source roots, to a `workspace.json` in Neovim's
+cache directory. The plugin reads that and lists archive entries locally with
+`unzip` (or `tar`), and with the JDK's `jimage`. The server's `decompile`
+command then serves any entry of those archives.
+
+Limits:
+
+- the tree needs a local server, since the server writes `workspace.json` on
+  its own machine;
+- the server returns no file content until indexing finishes;
+- only archives in the workspace model can be opened, so a jar outside the
+  project's dependencies cannot be;
+- the server rejects breakpoints in library files.
+
 ## Completion insertion fix
 
 Some completion items do not carry the inserted text. They come with an empty
