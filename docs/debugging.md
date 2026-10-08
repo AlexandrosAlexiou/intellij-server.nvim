@@ -6,6 +6,7 @@ With [nvim-dap](https://github.com/mfussenegger/nvim-dap) installed, the plugin 
 
 - **Run/Debug code lenses** above every `main` entry point, like the VS Code extension
 - **Launch**: run a main class, with or without the debugger
+- **Tests**: run or debug a test, a file or a module, with lenses above every test
 - **Attach**: connect to a running JVM via JDWP
 
 The adapter sends `workspace/executeCommand("start_debug_server")` to the LSP, which returns a DAP port.
@@ -46,14 +47,14 @@ For JVM arguments, environment variables or a working directory, use a nvim-dap
 configuration (further down) — those are per-program settings worth keeping around.
 
 Before a session starts, whatever the configuration leaves out is resolved from the
-project model, the same way the VS Code extension resolves it (server 0.0.12+):
+project model, the same way the VS Code extension resolves it:
 
 | Step | Resolved via |
 |------|--------------|
 | `file` from `mainClass` | `intellij.java.resolveClassDocument` |
 | which launcher (`launcher = "auto"`, what the lenses use) | `intellij.java.resolveBuildToolLaunch` — Gradle when it can run the module, otherwise a JVM launch |
 | build before a JVM launch | `intellij.java.resolveBuildCommand` — the tool's own compile command (`mvn -pl :app -am compile`, `gradle :app:classes`, …), run with its output in `:IntellijServerBuildLog` |
-| `javaExec`, `classPaths`, `modulePaths`, `moduleName`, `moduleContentPaths`, `cwd` | `intellij.java.resolveLaunch` — one request; values the configuration sets are sent as overrides and the server merges them |
+| `javaExec`, `classPaths`, `modulePaths`, `moduleName`, `moduleContentPaths`, `cwd`, `vmArgs` | `intellij.java.resolveLaunch` — one request; values the configuration sets are sent as overrides and the server merges them |
 | Gradle launch: `buildToolTarget`, `classPaths` (breakpoint scope) | `intellij.java.resolveBuildToolLaunch` |
 
 So `mainClass` on its own is enough. Two ways to run exist, selected by `launcher`:
@@ -88,7 +89,7 @@ Launch configurations support:
 | `sourceSet`   | `string`   | Gradle only: source set whose runtime classpath the program runs on (`"main"`, `"test"`). Default: the module's |
 | `gradleArgs`  | `string[]` | Gradle only: arguments for the Gradle invocation itself (`"--offline"`, `"-Pkey=value"`) |
 | `noDebug`     | `boolean`  | Run without attaching the debugger |
-| `console`     | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), or `externalTerminal` |
+| `console`     | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), `externalTerminal`, or `none` (output as DAP events; what test runs use) |
 
 With `integratedTerminal` (the default) the adapter sends a DAP `runInTerminal`
 reverse request, which nvim-dap answers by opening a terminal buffer for the
@@ -201,6 +202,53 @@ dap.set_breakpoint(vim.fn.input("Condition: "))  -- e.g. i == 42
 dap.set_exception_breakpoints({ "uncaught" })
 ```
 
+## Tests
+
+Tests run the way IntelliJ runs them (server 0.0.13+): the server finds them,
+resolves a launch of its own JUnit starter for exactly the tests asked for, and
+the plugin runs that launch through nvim-dap like a main class — compiled first,
+with breakpoints when debugging.
+
+| | Run | Debug |
+|---|---|---|
+| Code lens above a test method or class | `Run Test` | `Debug Test` |
+| Test at the cursor | `:IntellijServerTest` | `:IntellijServerTest!` |
+| Every test in the file | `:IntellijServerTest file` | `:IntellijServerTest! file` |
+| Every test in the module | `:IntellijServerTest module` | `:IntellijServerTest! module` |
+| Lua | `require("intellij-server.tests").run({ scope = "cursor" })` | `{ scope = "cursor", debug = true }` |
+
+The test at the cursor is the last test method declared at or above the cursor
+line, or the class when the cursor is above the first one. `module` runs the
+module the file belongs to; outside a file with tests it asks which module,
+when there is more than one.
+
+Results come back three ways:
+
+- a notification: `CalcTest: 2 passed, 1 failed, 0 skipped in 1.3s`;
+- a diagnostic on every failed test, placed on the assertion that failed when
+  the stack trace points into the test's file, else on the test's name. It
+  carries the message, the expected and actual values, and the frames down to
+  that line (minus the assertion library's own); rerunning the test replaces
+  it. Diagnostics live in the `intellij-server.tests` namespace;
+- the program's own output in `:IntellijServerBuildLog`, after the build that
+  preceded it.
+
+Lenses appear once the project import has finished (they need the module), and
+only above tests the server can run — JUnit, with the runtime the server
+bundles. The `code_lens = { tests = false }` option turns them off; the
+commands still work.
+
+How it works: `intellij.jvm.discoverTestsInFile` / `discoverTestsInModule` list
+the test classes and methods, `intellij.jvm.resolveTestLaunch` turns the chosen
+ids into a `com.intellij.rt.junit.JUnitStarter` launch with the runner's jars,
+and `intellij.java.resolveLaunch` supplies the project's own classpath, JDK and
+working directory. The runner reports every test as a TeamCity service message
+on stdout (`##teamcity[testFailed name='fails()' message='…' expected='4'
+actual='3' …]`); with `console = "none"` those arrive as DAP output events,
+which the plugin turns into the results above. nvim-dap's REPL does not see
+them: the plugin sets `require("dap").defaults.intellij.on_output` to route
+test output and forwards everything else to the REPL as nvim-dap itself would.
+
 ## Attach to a running JVM
 
 Start the JVM with JDWP enabled:
@@ -212,37 +260,16 @@ Start the JVM with JDWP enabled:
 Then `:IntellijServerAttach 5005`, or pick the `Attach to JVM` configuration. Attach
 configurations take `port`, `hostName` (default `localhost`) and `timeout` (ms, default 30000).
 
-## Limitations (server 0.0.12)
+## Limitations
 
-- **Tests cannot be run or debugged.** The server exposes no test discovery or
-  test-run support at all — the same limitation the VS Code extension has. Until
-  it does, run the test under the build tool with JDWP enabled and attach:
-
-  ```bash
-  mvnDebug test -Dtest=MyTest              # Maven, listens on 5005, suspended
-  gradle test --tests MyTest --debug-jvm   # Gradle, listens on 5005, suspended
-  ```
-
-  Then `:IntellijServerAttach 5005`. Both suspend until the debugger connects, so
-  set breakpoints first. With plain `mvn`, pass the flag yourself — and keep the
-  test in the same JVM, or the flag lands on the wrong one:
-
-  ```bash
-  mvn test -Dtest=MyTest -DforkCount=0 \
-    -DargLine="-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=*:5005"
-  ```
-
-- **Attach is local only.** The debugger always connects to `127.0.0.1`; the
-  `hostName` and `timeout` fields the VS Code documentation lists are declared
-  in the extension's schema but never reach the server.
-- Execution is not delegated to Maven or Gradle, so launch parameters set in a
-  build script do not apply.
-- **Nothing is compiled before launch.** Unlike an IntelliJ run configuration,
-  which runs a Build step first, the adapter launches `java` against whatever is
-  already in the output directories on the resolved classpath. Build before you
-  run, and rebuild after editing, or the launch runs stale classes — or none at
-  all. Mill projects hit a worse variant of this out of the box, where the
-  output directories on the classpath are ones Mill never writes to; see
-  [Troubleshooting](troubleshooting.md#mill-projects-rundebug-fails-with-classnotfoundexception-for-the-main-class).
 - The Run/Debug lenses carry only the main class, so they always launch a
   program bare. Use `:IntellijServerRun` or a configuration to pass arguments.
+- A `"jvm"` launch runs `java` against the output directories the build tool
+  fills; a build whose outputs lie elsewhere runs stale classes or none. Mill
+  projects hit this out of the box, see
+  [Troubleshooting](troubleshooting.md#mill-projects-rundebug-fails-with-classnotfoundexception-for-the-main-class).
+- Tests are run by IntelliJ's starter, not by Maven or Gradle: surefire and
+  Gradle `test {}` settings (system properties, JVM arguments, forking) do not
+  apply. For those, run the test under the build tool with JDWP enabled and
+  attach — `mvnDebug test -Dtest=MyTest` or `gradle test --tests MyTest
+  --debug-jvm`, then `:IntellijServerAttach 5005`.

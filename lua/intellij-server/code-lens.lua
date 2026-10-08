@@ -1,4 +1,4 @@
---- Code lens presentation fixes for the IntelliJ server.
+--- Code lens presentation fixes for the IntelliJ server, and the test lenses.
 ---
 --- The server writes lenses the way VS Code wants them:
 ---   * titles carry codicon markup — "$(play) Run", "$(debug) Debug" — which
@@ -7,6 +7,11 @@
 ---     token), and Neovim indents the virtual line to that column, leaving
 ---     the lens floating far right of the code it sits above.
 --- Both are rewritten before the built-in handler sees the response.
+---
+--- The server has no lenses for tests (VS Code has a Test Explorer instead),
+--- so Run Test / Debug Test lenses are added here from the server's test
+--- discovery (intellij-server.tests), requested alongside every code lens
+--- request and merged into its response.
 local M = {}
 
 local wrapped = "_intellij_code_lens_wrapped"
@@ -15,6 +20,7 @@ local wrapped = "_intellij_code_lens_wrapped"
 --- @field icons table<string, string>|false? Codicon name -> replacement text.
 --- Defaults to Nerd Font glyphs; `false` (or an empty table) shows text only.
 --- @field align boolean? Align lenses with the line's indent (default: true)
+--- @field tests boolean? Run Test / Debug Test lenses (default: true; needs nvim-dap)
 
 --- Nerd Font stand-ins for the codicons the server asks for: nf-fa-play and
 --- nf-fa-bug. Set `code_lens.icons` to replace them, or to `false` for text
@@ -95,6 +101,38 @@ function M.setup(config)
   opts = config or {}
 end
 
+--- Discover the tests of the document and hand the handler the server's
+--- lenses plus theirs, whichever answer comes last. The context stays the
+--- code lens response's, so Neovim's staleness check (buffer version) holds.
+---@param client vim.lsp.Client
+---@param uri string
+---@param inner lsp.Handler
+---@param bufnr integer?
+---@return lsp.Handler
+local function with_test_lenses(client, uri, inner, bufnr)
+  local tests = require("intellij-server.tests")
+  local test_lenses, pending ---@type lsp.CodeLens[]?, table?
+
+  local function deliver(err, result, ctx, config)
+    local merged = vim.list_extend(vim.list_extend({}, result or {}), test_lenses or {})
+    return inner(err, normalize(merged, ctx and ctx.bufnr or bufnr), ctx, config)
+  end
+
+  tests.discover(client, uri, function(_, items)
+    test_lenses = tests.lenses(items)
+    if pending then
+      deliver(pending.err, pending.result, pending.ctx, pending.config)
+    end
+  end)
+
+  return function(err, result, ctx, config)
+    if test_lenses then
+      return deliver(err, result, ctx, config)
+    end
+    pending = { err = err, result = result, ctx = ctx, config = config }
+  end
+end
+
 --- Rewrite code lens responses for one client. Neovim's code lens provider
 --- passes its own handler to every request, so there is no handler to override
 --- in the client config; wrapping the method on the client instance leaves
@@ -111,8 +149,12 @@ function M.attach(client)
   client.request = function(self, method, params, handler, bufnr)
     if handler and method == "textDocument/codeLens" then
       local inner = handler
-      handler = function(err, result, ctx, config)
-        return inner(err, normalize(result, ctx and ctx.bufnr or bufnr), ctx, config)
+      if opts.tests then
+        handler = with_test_lenses(self, params.textDocument.uri, inner, bufnr)
+      else
+        handler = function(err, result, ctx, config)
+          return inner(err, normalize(result, ctx and ctx.bufnr or bufnr), ctx, config)
+        end
       end
     end
     return request(self, method, params, handler, bufnr)

@@ -4,7 +4,7 @@
 
 ## Standard LSP
 
-Everything the server (v0.0.12) advertises is supported. Features marked *automatic* work through
+Everything the server (v0.0.13) advertises is supported. Features marked *automatic* work through
 Neovim's built-in LSP client with no configuration.
 
 | Feature | How to use |
@@ -25,11 +25,30 @@ Neovim's built-in LSP client with no configuration.
 | Semantic tokens | *automatic* — IntelliJ-quality highlighting layered over treesitter; the server's overlapping tokens are flattened by the plugin, see below |
 | Inlay hints | enabled on attach by the plugin — `inlay_hints = { enabled = false }` to opt out, or toggle with `vim.lsp.inlay_hint.enable()` |
 | Folding range | wired on attach: `foldexpr = v:lua.vim.lsp.foldexpr()`, folds start open — `folding = { enabled = false }` to opt out; use `zc`/`zo`/`za` |
-| Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods when nvim-dap is available. VS Code codicon markup in titles is swapped for Nerd Font glyphs and lenses are aligned with the code they sit above (`icons`, `align`); `code_lens = { enabled = false }` to opt out |
+| Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods and the Run Test / Debug Test lenses above tests when nvim-dap is available. VS Code codicon markup in titles is swapped for Nerd Font glyphs and lenses are aligned with the code they sit above (`icons`, `align`); `code_lens = { enabled = false }` to opt out |
+| Tests | `:IntellijServerTest` runs the test at the cursor, `:IntellijServerTest!` debugs it; `file` and `module` scopes, lenses above every test — see [Debugging](debugging.md#tests) |
+| Refactoring prompts | choices a refactoring offers (where to initialize an extracted field, whether inlining removes the method) come as `vim.ui.select`; conflicts it finds as a confirm prompt plus the quickfix list — see below |
 | Call hierarchy | `vim.lsp.buf.incoming_calls()` / `vim.lsp.buf.outgoing_calls()` |
 | Type hierarchy | `vim.lsp.buf.typehierarchy("subtypes")` / `("supertypes")` |
 
 Not provided by the server: go to declaration, range/on-type formatting, selection range.
+
+## Refactoring prompts (the server's own protocol)
+
+IntelliJ's refactorings and intentions ask questions mid-way that LSP has no
+message for, so the server defines its own. The plugin opts in to them
+(`initializationOptions.intellijExtensions`, as the VS Code extension does)
+and answers each with the Neovim equivalent:
+
+| Server message | What it is | Neovim |
+|---|---|---|
+| `intellij/chooseAction` | a code action with several outcomes — *Extract to field* asks where to initialize it, *Inline method* whether to inline all usages and remove the method | `vim.ui.select` (kind `intellij_action`); the pick continues the action, cancelling drops it |
+| `intellij/showConflicts` | a refactoring found problems (a private member becoming inaccessible) and asks whether to go ahead | a confirm prompt with the conflicts, which also land in the quickfix list for `:copen` afterwards |
+| `intellij/runEditorCommand` | an edit that wants the editor to follow up: start a rename on the new name, open completion, show parameter hints | `vim.lsp.buf.rename()`, LSP completion, `vim.lsp.buf.signature_help()` |
+| `intellij/copyToClipboard` | an action that produces text instead of an edit | the `+` and `"` registers |
+
+Actions are also requested lazily (`lazyIntentions`), so a code action list
+is cheap to compute and the choice above is only asked for the action you run.
 
 ## Package navigation (go to definition on a package)
 

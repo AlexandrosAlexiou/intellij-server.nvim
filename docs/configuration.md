@@ -94,17 +94,22 @@ require("intellij-server").setup({
     -- indents the virtual line to. Draw them at the indent of the code
     -- instead; false keeps Neovim's placement.
     align = true,
+    -- Run Test / Debug Test lenses above every test (the server has none of
+    -- its own), discovered alongside each code lens request. Needs nvim-dap.
+    tests = true,
   },
 
   -- Package navigation: open package definitions as a directory listing
   navigation = { enabled = true },
 
-  -- nvim-dap debugger integration. Also turns on the server's Run/Debug code
-  -- lenses above main methods (initializationOptions.runMainCodeLens).
+  -- nvim-dap debugger integration: launching, attaching, tests. Also turns on
+  -- the server's Run/Debug code lenses above main methods
+  -- (initializationOptions.runMainCodeLens).
   dap = {
     enabled = true,  -- requires nvim-dap
-    -- Compile the module with its build tool before a JVM launch (the VS Code
-    -- extension's pre-launch build task). Output goes to :IntellijServerBuildLog.
+    -- Compile the module with its build tool before a JVM launch or a test run
+    -- (the VS Code extension's pre-launch build task). Output goes to
+    -- :IntellijServerBuildLog.
     build_before_launch = true,
   },
 

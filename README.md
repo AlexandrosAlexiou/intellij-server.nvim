@@ -77,6 +77,7 @@ completion, the build log — is documented in **[docs/configuration.md](docs/co
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
 | `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
 | `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
+| `:IntellijServerTest [cursor\|file\|module]` | Run the test at the cursor, or every test of the file or module (`:IntellijServerTest!` debugs them) |
 | `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
 
 ## Features
@@ -85,8 +86,8 @@ Java and Kotlin support from the same engine IntelliJ IDEA runs on: completion,
 diagnostics, navigation, refactoring, formatting, inlay hints and code lenses —
 all through Neovim's built-in LSP client. On top of that the
 plugin supplies the client-side pieces the server expects an IDE to provide:
-package navigation, completion insertion, formatting, file
-templates, and running and debugging through nvim-dap.
+package navigation, completion insertion, the prompts refactorings ask with,
+formatting, file templates, and running, debugging and testing through nvim-dap.
 
 ## Documentation
 
@@ -112,8 +113,11 @@ The server binary is downloaded from JetBrains CDN. The plugin vendors binaries 
 [JetBrains IntelliJ LSP VS Code extension](https://marketplace.visualstudio.com/items?itemName=JetBrains.intellij-server):
 
 ```
-https://download-cdn.jetbrains.com/language-server/intellij-server/{build}/intellij-server-{version}-{platform}.vsix
+https://download.jetbrains.com/language-server/intellij-server/{build}/intellij-server-{version}-{platform}.vsix
 ```
+
+That address redirects to a signed `download-cdn.jetbrains.com` URL; the CDN host itself no longer serves
+the files unsigned (a plain request gets 404).
 
 > [!important]
 > During the preview period (current), the server is **free to use without a [license](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp/#licensing)**. Each preview build expires after

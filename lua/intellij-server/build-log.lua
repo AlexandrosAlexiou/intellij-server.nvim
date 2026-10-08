@@ -32,8 +32,9 @@ local function get_buf()
 end
 
 --- Append lines to the log buffer, following the tail in any window showing it.
+--- Test runs (intellij-server.tests) write their output here too.
 ---@param lines string[]
-local function append(lines)
+function M.append(lines)
   local buf = get_buf()
   local last = vim.api.nvim_buf_line_count(buf)
   -- Replace the initial empty line on first write
@@ -79,11 +80,11 @@ function M.run(build, on_done)
   local tool = build.tool or "Build"
   local buf = get_buf()
   if vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] ~= "" then
-    append({ "" })
+    M.append({ "" })
   end
-  append({ ("── %s build started: %s ──"):format(tool, table.concat(build.command, " ")) })
+  M.append({ ("── %s build started: %s ──"):format(tool, table.concat(build.command, " ")) })
   if build.cwd then
-    append({ "in " .. build.cwd })
+    M.append({ "in " .. build.cwd })
   end
   if M.opts.notify then
     vim.notify(("[intellij-server] %s build started — :IntellijServerBuildLog to follow"):format(tool))
@@ -105,7 +106,7 @@ function M.run(build, on_done)
         local lines = vim.split(text, "\n", { plain = true })
         pending[stream] = table.remove(lines)
         if #lines > 0 then
-          append(lines)
+          M.append(lines)
         end
       end)
     end
@@ -114,7 +115,7 @@ function M.run(build, on_done)
   local function flush()
     for _, stream in ipairs({ "stdout", "stderr" }) do
       if pending[stream] ~= "" then
-        append({ pending[stream] })
+        M.append({ pending[stream] })
         pending[stream] = ""
       end
     end
@@ -129,13 +130,13 @@ function M.run(build, on_done)
     vim.schedule(function()
       flush()
       if result.code == 0 then
-        append({ ("── %s build finished ──"):format(tool) })
+        M.append({ ("── %s build finished ──"):format(tool) })
         if M.opts.notify then
           vim.notify(("[intellij-server] %s build finished"):format(tool))
         end
         on_done(true)
       else
-        append({ ("── %s build failed (exit code %d) ──"):format(tool, result.code) })
+        M.append({ ("── %s build failed (exit code %d) ──"):format(tool, result.code) })
         if M.opts.notify then
           vim.notify(("[intellij-server] %s build failed — see :IntellijServerBuildLog"):format(tool), vim.log.levels.ERROR)
         end
@@ -147,7 +148,7 @@ function M.run(build, on_done)
     end)
   end)
   if not ok then
-    append({ ("── could not run %s: %s ──"):format(build.command[1], tostring(err)) })
+    M.append({ ("── could not run %s: %s ──"):format(build.command[1], tostring(err)) })
     vim.notify(("[intellij-server] could not run %s: %s"):format(build.command[1], tostring(err)), vim.log.levels.ERROR)
     on_done(false)
   end
@@ -164,7 +165,7 @@ function M.handler(_, params, _)
   if params.started then
     -- VS Code keeps prior output and just reveals/scrolls; mark a new run.
     if bufnr and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_get_lines(bufnr, 0, 1, false)[1] ~= "" then
-      append({ "", ("── %s started ──"):format(tool) })
+      M.append({ "", ("── %s started ──"):format(tool) })
     end
     if M.opts.notify then
       vim.notify(("[intellij-server] %s started — :IntellijServerBuildLog to follow"):format(tool))
@@ -176,7 +177,7 @@ function M.handler(_, params, _)
   end
 
   if params.message then
-    append(vim.split(params.message, "\n", { plain = true }))
+    M.append(vim.split(params.message, "\n", { plain = true }))
   end
 
   if params.failed then

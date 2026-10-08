@@ -219,7 +219,7 @@ cache in `~/Library/Caches/JetBrains/analyzer`) are not removed; delete them man
 ```
 ~/.local/share/nvim/intellij-server/
 ├── server/          # extracted server (bin, lib, jbr, plugins, etc.)
-└── .version         # version marker (e.g., "0.0.12+263.4702.0")
+└── .version         # version marker (e.g., "0.0.13+263.6379.0")
 ```
 
 The archive is ~370 MB. If the download is interrupted (network drop, `curl: (18) transfer closed`, quitting Neovim),

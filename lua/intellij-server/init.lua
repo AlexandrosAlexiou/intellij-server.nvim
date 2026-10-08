@@ -22,11 +22,12 @@ local M = {}
 ---@field settings table? LSP workspace settings.
 ---@field inlay_hints { enabled?: boolean }? Enable inlay hints on attach (default: on).
 ---@field folding { enabled?: boolean }? Use LSP folding ranges for folds (default: on).
----@field code_lens { enabled?: boolean, icons?: table<string, string>|false, align?: boolean }?
+---@field code_lens { enabled?: boolean, icons?: table<string, string>|false, align?: boolean, tests?: boolean }?
 ---   Refresh and display code lenses (default: on). The server's titles carry VS Code
 ---   codicon markup ("$(play) Run"): `icons` maps a codicon name to the text to show
 ---   instead, anything unmapped is dropped. `align = false` keeps Neovim's placement,
 ---   which indents each lens to the identifier it belongs to instead of the code.
+---   `tests = false` drops the Run Test / Debug Test lenses the plugin adds above tests.
 ---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
 ---@field dap { enabled?: boolean, build_before_launch?: boolean }? nvim-dap integration. `build_before_launch`
 ---   (default: on) compiles the module with its build tool before a JVM launch, like the VS Code
@@ -94,7 +95,7 @@ M.defaults = {
   },
   inlay_hints = { enabled = true },
   folding = { enabled = true },
-  code_lens = { enabled = true },
+  code_lens = { enabled = true, tests = true },
   navigation = { enabled = true },
   dap = { enabled = true, build_before_launch = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
@@ -148,6 +149,12 @@ end
 local function attach_all_buffers(client)
   attach_open_buffers(client)
   require("intellij-server.content-provider").attach_open_buffers(client.id)
+end
+
+--- Running anything — main classes, tests — goes through nvim-dap.
+---@return boolean
+local function dap_enabled()
+  return (M.config.dap or {}).enabled ~= false and pcall(require, "dap")
 end
 
 function M.setup(opts)
@@ -232,11 +239,12 @@ function M.setup(opts)
     require("intellij-server.navigation").setup()
   end
 
-  require("intellij-server.code-lens").setup(M.config.code_lens)
+  local lens = M.config.code_lens or {}
+  require("intellij-server.code-lens").setup(vim.tbl_extend("force", lens, { tests = lens.tests ~= false and dap_enabled() }))
 
-  local dap_cfg = M.config.dap or {}
-  if dap_cfg.enabled ~= false and pcall(require, "dap") then
+  if dap_enabled() then
     require("intellij-server.dap").setup()
+    require("intellij-server.tests").setup()
   end
 end
 
@@ -319,9 +327,14 @@ function M.start(bufnr)
     return response
   end
 
-  -- Note: 0.0.8 clients sent `eulaHash` here; since 0.0.10 the server
-  -- requires it as the `--eula` CLI flag instead (see server.build_cmd).
-  local init_options = {}
+  local init_options = {
+    -- Opt in to the server's own protocol additions (intellij-server.extensions)
+    -- and to actions resolved only when run, which is when a choice between
+    -- their variants arrives as intellij/chooseAction — the VS Code client's
+    -- settings.
+    intellijExtensions = true,
+    lazyIntentions = true,
+  }
 
   -- Explicit project imports, mirroring the VS Code `intellij.projects`
   -- setting. Without an explicit entry, per-project resolution applies:
@@ -363,7 +376,7 @@ function M.start(bufnr)
   end
 
   -- Per-folder build tool for folders claimed by several build systems, keyed
-  -- by folder URI as the server expects (server 0.0.12+).
+  -- by folder URI as the server expects.
   if type(M.config.build_tools) == "table" and not vim.tbl_isempty(M.config.build_tools) then
     init_options.buildTools = {}
     for folder, tool in pairs(M.config.build_tools) do
@@ -380,33 +393,27 @@ function M.start(bufnr)
   end
 
   -- Ask the server for the Run/Debug code lenses above every main entry point.
-  -- They carry an `intellij.jvm.runMain` command (`intellij_debugger.runMain`
-  -- on server 0.0.10), which we dispatch to nvim-dap through the client-side
-  -- `commands` table below.
+  -- They carry an `intellij.jvm.runMain` command, which we dispatch to
+  -- nvim-dap through the client-side `commands` table below, next to the
+  -- plugin's own Run Test / Debug Test lenses.
   local lsp_commands = nil
-  if (M.config.dap or {}).enabled ~= false and pcall(require, "dap") then
+  if dap_enabled() then
     init_options.runMainCodeLens = true
-    lsp_commands = require("intellij-server.dap").lsp_commands()
+    lsp_commands = vim.tbl_extend(
+      "error",
+      require("intellij-server.dap").lsp_commands(),
+      require("intellij-server.tests").lsp_commands()
+    )
   end
 
-  local handlers = {
-    ["workspace/configuration"] = configuration_handler,
-    -- The completion apply command positions the caret via showDocument;
-    -- place it in the current buffer instead of switching windows/scrolling.
-    ["window/showDocument"] = function(_, params, ctx)
-      return require("intellij-server.completion").show_document(params, ctx)
-    end,
-    -- ModCommands that drive the editor after their edit (start a rename,
-    -- open completion, show parameter hints) arrive as VS Code command ids.
-    ["intellij/runEditorCommand"] = function(_, params, ctx)
-      return require("intellij-server.editor-command").handler(_, params, ctx)
-    end,
-    -- Folders the server refuses to import on its own (several build systems
-    -- claim them) — tell the user how to pick one.
-    ["intellij/workspaceImportStatus"] = function(_, params, ctx)
-      return require("intellij-server.import-status").handler(_, params, ctx)
-    end,
-  }
+  -- The server's own notifications and requests (intellij-server.extensions).
+  local handlers = require("intellij-server.extensions").handlers()
+  handlers["workspace/configuration"] = configuration_handler
+  -- The completion apply command positions the caret via showDocument;
+  -- place it in the current buffer instead of switching windows/scrolling.
+  handlers["window/showDocument"] = function(_, params, ctx)
+    return require("intellij-server.completion").show_document(params, ctx)
+  end
   -- Streamed import/build output (Maven downloads, compilation, …),
   -- same channel the VS Code extension shows as its "Build" panel.
   if (M.config.build_log or {}).enabled ~= false then
