@@ -105,6 +105,29 @@ local function load_index(picker, lib, after)
   end, after)
 end
 
+--- Call `done` once what expanding an item lists has been loaded: the model
+--- for the node, the jar index for a library. Directories inside a library
+--- are listed from an index that is already there.
+---@param picker table
+---@param v { kind: string, root: string, lib: string? }
+---@param done fun()
+local function ensure_loaded(picker, v, done)
+  if v.kind == "node" then
+    if libraries().model(v.root) then
+      return done()
+    end
+    return load_model(picker, v.root, done)
+  end
+  local model = libraries().model(v.root)
+  local lib = model and vim.iter(model.libraries):find(function(l)
+    return l.name == v.lib
+  end)
+  if v.kind ~= "lib" or not lib or libraries().children(v.root, lib, "") then
+    return done()
+  end
+  load_index(picker, lib, done)
+end
+
 ---@param a { name: string, type: string }
 ---@param b { name: string, type: string }
 local function by_type_then_name(a, b)
@@ -305,12 +328,21 @@ function M.patch()
       return confirm(picker, item, action)
     end
     if item.dir then
-      expanded[item.file] = not item.open or nil
-      if v.kind == "node" then
-        -- Reopening the node retries a load that failed.
-        failed = {}
+      local function toggle()
+        expanded[item.file] = not item.open or nil
+        refresh(picker, item.file)
       end
-      refresh(picker, item.file)
+      if item.open then
+        toggle()
+      else
+        -- Reopening the node retries a load that failed.
+        if v.kind == "node" then
+          failed = {}
+        end
+        -- Expand only once there is something to show: opening first would
+        -- draw the item open and empty, then redraw when the load lands.
+        ensure_loaded(picker, v, toggle)
+      end
     else
       item.buf = vim.fn.bufadd(v.target)
       require("snacks.picker.actions").jump(picker, item, action)
