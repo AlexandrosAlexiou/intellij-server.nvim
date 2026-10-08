@@ -75,6 +75,18 @@ Then run it from the project root (requires Gradle 7.5+ for variant reselection)
 Either way, re-sync the project afterwards (restart the server or reload the project) so the freshly cached sources
 jars are picked up.
 
+## Tests fail with `ClassNotFoundException` for the test class
+
+The build ran and reported success, but the test class is not on disk. Seen with
+the Maven build cache extension (`.mvn/extensions.xml`, "Restoring project from
+build cache"): it restores a cached build that holds no test classes and skips
+`compiler:testCompile`. Check `target/test-classes`; if it is empty, switch the cache
+off for the plugin's builds:
+
+```lua
+dap = { build_args = { "-Dmaven.build.cache.enabled=false" } },
+```
+
 ## Mill projects: Run/Debug fails with `ClassNotFoundException` for the main class
 
 Symptoms: hover, completion and go-to-definition all work, but launching a main class (code lens or

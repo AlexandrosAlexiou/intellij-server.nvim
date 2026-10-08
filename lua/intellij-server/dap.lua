@@ -88,9 +88,12 @@ function M.build_module(client, uri, on_done)
       on_done(true)
       return
     end
+    -- Extra arguments from setup(), e.g. to switch off a build cache that
+    -- restores a module without its test classes.
+    local command = vim.list_extend(vim.list_extend({}, resolved.command), (require("intellij-server").config.dap or {}).build_args or {})
     require("intellij-server.build-log").run({
       tool = resolved.tool,
-      command = resolved.command,
+      command = command,
       cwd = resolved.cwd,
     }, on_done)
   end)

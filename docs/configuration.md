@@ -111,6 +111,10 @@ require("intellij-server").setup({
     -- (the VS Code extension's pre-launch build task). Output goes to
     -- :IntellijServerBuildLog.
     build_before_launch = true,
+    -- Extra arguments appended to the server's build command, e.g. for a Maven
+    -- build cache that restores modules without their test classes:
+    -- build_args = { "-Dmaven.build.cache.enabled=false" },
+    build_args = nil,
   },
 
   -- Explicit project imports (initializationOptions.projects), equivalent to
