@@ -1,6 +1,6 @@
 # Troubleshooting
 
-[Configuration](configuration.md) · [Features](features.md) · [Debugging](debugging.md) · [README](../README.md)
+[Installation](installation.md) · [Configuration](configuration.md) · [Features](features.md) · [Debugging](debugging.md) · [README](../README.md)
 
 ## Gradle projects: go-to-definition opens decompiled classes instead of library sources
 

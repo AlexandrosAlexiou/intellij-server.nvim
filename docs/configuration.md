@@ -1,6 +1,6 @@
 # Configuration
 
-[Features](features.md) · [Debugging](debugging.md) · [Troubleshooting](troubleshooting.md) · [README](../README.md)
+[Installation](installation.md) · [Features](features.md) · [Debugging](debugging.md) · [Troubleshooting](troubleshooting.md) · [README](../README.md)
 
 All fields are optional. The values below are the defaults, with realistic examples
 for the fields that default to `nil`/empty:

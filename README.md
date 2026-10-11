@@ -1,56 +1,92 @@
-# intellij-server.nvim
+intellij-server.nvim &mdash; IntelliJ IDEA's LSP in Neovim
+======================================================================
 
-Neovim plugin for the [JetBrains IntelliJ Language Server](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp) the same engine that powers IntelliJ IDEA, now available as an LSP server.
+[<img alt="github" src="https://img.shields.io/badge/github-AlexandrosAlexiou/intellij--server.nvim-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/AlexandrosAlexiou/intellij-server.nvim)
+[<img alt="neovim" src="https://img.shields.io/badge/neovim-0.12+-57A143?style=for-the-badge&labelColor=555555&logo=neovim" height="20">](https://neovim.io/)
+[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-263.6379.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
+[<img alt="license" src="https://img.shields.io/github/license/AlexandrosAlexiou/intellij-server.nvim?style=for-the-badge" height="20">](LICENSE)
 
-Provides Java and Kotlin language support including code completion, diagnostics, navigation, refactoring, and formatting.
+This plugin runs the [JetBrains IntelliJ Language Server][announcement], the
+same engine that powers IntelliJ IDEA, in Neovim and gives Java and Kotlin
+files IntelliJ's completion, diagnostics, navigation, refactoring and
+formatting through the built-in LSP client.
 
-## Requirements
-
-- Neovim ≥ 0.12
-- `curl` and `unzip` on PATH (for `:IntellijServerInstall`; on Windows the bundled `tar` is used instead of `unzip`)
-- macOS, Linux or Windows on x86_64 or ARM64 — every platform JetBrains publishes the server for
-- [nvim-dap](https://github.com/mfussenegger/nvim-dap) (optional, for debugging)
-
-## Installation
-
-### lazy.nvim
+The server is written for its VS Code extension and expects an IDE on the
+other end: it inserts completions through commands, asks the editor to show
+refactoring prompts, and leaves running, debugging and testing to the client.
+intellij-server.nvim supplies those pieces, downloads and updates the server,
+and can share one server process across every project and Neovim instance.
 
 ```lua
+-- lazy.nvim
 {
   "AlexandrosAlexiou/intellij-server.nvim",
   ft = { "java", "kotlin" },
   dependencies = { "mfussenegger/nvim-dap" }, -- optional
-  build = ":IntellijServerInstall",  -- auto-download on install/update
+  build = ":IntellijServerInstall",
   opts = {},
 }
 ```
 
-### Manual
+*Requires Neovim 0.12+, `curl` and `unzip` (`tar` on Windows); macOS, Linux or Windows on x86_64 or ARM64*<br>
+*[Release notes](https://github.com/AlexandrosAlexiou/intellij-server.nvim/releases)*
 
-Clone this repo into your Neovim packages directory:
+<br>
 
-```sh
-git clone https://github.com/AlexandrosAlexiou/intellij-server.nvim \
-  ~/.local/share/nvim/site/pack/plugins/start/intellij-server.nvim
-```
+## Documentation
 
-Then add to your `init.lua`:
+| | |
+|---|---|
+| [Installation](docs/installation.md) | Requirements, plugin managers, how the server is downloaded and run, licensing |
+| [Configuration](docs/configuration.md) | Every option with defaults, project root, shared server (socket mode), project JDK, inlay hints |
+| [Features](docs/features.md) | Commands, what works, and the behaviours the plugin fixes up |
+| [Debugging and running](docs/debugging.md) | Code lenses, `:IntellijServerRun`, tests, attach, breakpoints |
+| [Troubleshooting](docs/troubleshooting.md) | Gradle sources, server heap, logs, file paths |
 
-```lua
-require("intellij-server").setup()
-```
+<br>
 
-Run `:IntellijServerInstall` to download the server binary.
+## Overview
 
-## Configuration
+`:IntellijServerInstall` downloads the server from JetBrains and the plugin
+starts it on the project root when you open a Java or Kotlin file. The server
+is a headless IntelliJ IDEA with its own runtime, so no JDK is needed to run
+it. Everything the server advertises works through Neovim's LSP client:
+completion, diagnostics, hover, navigation, references, rename, code actions,
+inlay hints and code lenses. On top of that the plugin provides what the
+server expects from an IDE:
 
-The plugin works with no configuration — `opts = {}` (or `require("intellij-server").setup()`)
-attaches to Java and Kotlin files and starts the server on the working directory.
+- **Completion that inserts once,** with IntelliJ's own text, imports and
+  caret placement, in the built-in completion, nvim-cmp and blink.cmp.
+
+- **Refactoring prompts.** The questions refactorings ask (pick one of several
+  outcomes, confirm despite conflicts, rename what was just extracted) appear
+  as Neovim prompts.
+
+- **External Libraries.** Dependency and JDK sources as a browsable tree in
+  oil.nvim and the snacks explorer, and go-to-definition on a `package` opens
+  its folder.
+
+- **Running, debugging and testing** through nvim-dap: Run and Debug lenses,
+  `:IntellijServerRun` and `:IntellijServerTest`, and attaching to a running
+  JVM.
+
+- **Formatting and file templates** with IntelliJ's code-style engine and its
+  New File templates.
+
+- **One server for everything.** In socket mode a single shared process serves
+  every project and Neovim instance instead of one IntelliJ per project.
+
+<br>
+
+## Example
 
 ```lua
 require("intellij-server").setup({
   -- Raise the server's heap for large projects (default: the JVM's own)
   jvm_args = { "-Xmx8g" },
+
+  -- One shared server for all projects and Neovim instances
+  connection = { mode = "socket" },
 
   on_attach = function(client, bufnr)
     vim.keymap.set("n", "gd", vim.lsp.buf.definition, { buffer = bufnr })
@@ -58,81 +94,21 @@ require("intellij-server").setup({
 })
 ```
 
-One shared server for all projects and Neovim instances, instead of one heavy
-IntelliJ process per project
-
-Every option — filetypes, project import, inlay hints, folding, code lenses, inline
-completion, the build log — is documented in **[docs/configuration.md](docs/configuration.md)**.
-
-## Commands
-
-| Command | Description |
-|---|---|
-| `:IntellijServerInstall` | Download the server from JetBrains CDN |
-| `:IntellijServerUpdate` | Force re-download the server |
-| `:IntellijServerStart` | Start/attach the server for the current buffer |
-| `:IntellijServerStop` | Stop all running server instances (socket mode: `:IntellijServerStop!` also kills the shared server) |
-| `:IntellijServerRestart` | Restart the server (socket mode: `:IntellijServerRestart!` also restarts the shared server) |
-| `:IntellijServerClean` | Clean the current project's caches and restart |
-| `:IntellijServerVersion` | Show installed version info |
-| `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
-| `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
-| `:IntellijServerLibraries` | Browse dependency and JDK sources as an External Libraries tree in oil.nvim (`!` re-reads the workspace) |
-| `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
-| `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
-| `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
-| `:IntellijServerTest [cursor\|file\|module]` | Run the test at the cursor, or every test of the file or module (`:IntellijServerTest!` debugs them) |
-| `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
-
-## Features
-
-Java and Kotlin support from the same engine IntelliJ IDEA runs on: completion,
-diagnostics, navigation, refactoring, formatting, inlay hints and code lenses —
-all through Neovim's built-in LSP client. On top of that the
-plugin supplies the client-side pieces the server expects an IDE to provide:
-package navigation, an External Libraries node in the snacks explorer and oil, completion insertion,
-the prompts refactorings ask with, formatting, file templates, and running, debugging and testing
-through nvim-dap.
-
-## Documentation
-
-| | |
-|---|---|
-| [Configuration](docs/configuration.md) | Every option, with defaults |
-| [Features](docs/features.md) | What works, and the behaviours the plugin fixes up |
-| [Debugging and running](docs/debugging.md) | Code lenses, `:IntellijServerRun`, attach, breakpoints, tests |
-| [Troubleshooting](docs/troubleshooting.md) | Gradle sources, server heap, logs, file paths |
-
-## How it works
-
-The plugin launches the IntelliJ LSP server (`server/bin/intellij-server --stdio`) which is a headless IntelliJ IDEA
-instance stripped for language server use. It communicates over stdin/stdout using the standard LSP protocol. The server
-bundles its own JBR (JetBrains Runtime), no external JDK is required to run the server itself.
-
-The server is started detached, so it leads its own process group: the JVM and
-Maven or Gradle processes it spawns share that group and are killed with it on
-`:IntellijServerStop`, `:IntellijServerRestart` and `:IntellijServerClean`, even
-after being reparented to PID 1.
-
-In [socket mode](docs/configuration.md#shared-server-socket-mode) the plugin instead connects to a single shared
-server (`--socket=<host>:<port> --multi-client`) over TCP, spawning it on demand. One process serves every project
-and every Neovim instance. The server does not exit on its own, so the last Neovim to quit stops it (on Windows,
-macOS and Linux alike), and `:IntellijServerStop!` force-kills it.
-
-The server binary is downloaded from JetBrains CDN. The plugin vendors binaries from the
-[JetBrains IntelliJ LSP VS Code extension](https://marketplace.visualstudio.com/items?itemName=JetBrains.intellij-server):
-
-```
-https://download.jetbrains.com/language-server/intellij-server/{build}/intellij-server-{version}-{platform}.vsix
-```
-
-That address redirects to a signed `download-cdn.jetbrains.com` URL; the CDN host itself no longer serves
-the files unsigned (a plain request gets 404).
+Every option is listed in [docs/configuration.md](docs/configuration.md), and
+every command in [docs/features.md](docs/features.md#commands).
 
 > [!important]
-> During the preview period (current), the server is **free to use without a [license](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp/#licensing)**. Each preview build expires after
-> 30 days. Update the plugin to get a fresh build. Licensing will be introduced with the 1.0 release.
+> During the preview period the server is **free to use without a
+> [license](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp/#licensing)**,
+> and each preview build expires after 30 days. Update the plugin to get a
+> fresh build.
 
-## License
+[announcement]: https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp
 
-[MIT](LICENSE)
+<br>
+
+#### License
+
+<sup>
+Licensed under the <a href="LICENSE">MIT license</a>.
+</sup>

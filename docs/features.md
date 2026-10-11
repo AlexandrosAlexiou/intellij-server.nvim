@@ -1,6 +1,26 @@
 # Features
 
-[Configuration](configuration.md) · [Debugging](debugging.md) · [Troubleshooting](troubleshooting.md) · [README](../README.md)
+[Installation](installation.md) · [Configuration](configuration.md) · [Debugging](debugging.md) · [Troubleshooting](troubleshooting.md) · [README](../README.md)
+
+## Commands
+
+| Command | Description |
+|---|---|
+| `:IntellijServerInstall` | Download the server from JetBrains CDN |
+| `:IntellijServerUpdate` | Force re-download the server |
+| `:IntellijServerStart` | Start/attach the server for the current buffer |
+| `:IntellijServerStop` | Stop all running server instances (socket mode: `:IntellijServerStop!` also kills the shared server) |
+| `:IntellijServerRestart` | Restart the server (socket mode: `:IntellijServerRestart!` also restarts the shared server) |
+| `:IntellijServerClean` | Clean the current project's caches and restart |
+| `:IntellijServerVersion` | Show installed version info |
+| `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
+| `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
+| `:IntellijServerLibraries` | Browse dependency and JDK sources as an External Libraries tree in oil.nvim (`!` re-reads the workspace) |
+| `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
+| `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
+| `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
+| `:IntellijServerTest [cursor\|file\|module]` | Run the test at the cursor, or every test of the file or module (`:IntellijServerTest!` debugs them) |
+| `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
 
 ## Standard LSP
 

@@ -1,6 +1,6 @@
 # Debugging and running (nvim-dap)
 
-[Configuration](configuration.md) · [Features](features.md) · [Troubleshooting](troubleshooting.md) · [README](../README.md)
+[Installation](installation.md) · [Configuration](configuration.md) · [Features](features.md) · [Troubleshooting](troubleshooting.md) · [README](../README.md)
 
 With [nvim-dap](https://github.com/mfussenegger/nvim-dap) installed, the plugin registers an `intellij` DAP adapter that communicates with the IntelliJ debug server:
 
