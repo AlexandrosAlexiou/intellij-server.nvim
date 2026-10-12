@@ -297,7 +297,8 @@ require("conform").setup({
 ```
 
 There are no formatting-related LSP settings. Customize the style per project via
-`.editorconfig` using IntelliJ's `ij_java_*` / `ij_kotlin_*` properties, exactly like the IDE.
+`.editorconfig` using IntelliJ's `ij_java_*` / `ij_kotlin_*` properties, exactly like the IDE. See
+[Code style](code-style.md) for the full property list and common recipes (for example, stopping `import java.util.*;`).
 
 ## File Templates
 

@@ -41,6 +41,7 @@ and can share one server process across every project and Neovim instance.
 | [Configuration](docs/configuration.md) | Every option with defaults, project root, shared server (socket mode), project JDK, inlay hints |
 | [Features](docs/features.md) | Commands, what works, and the behaviours the plugin fixes up |
 | [Debugging and running](docs/debugging.md) | Code lenses, `:IntellijServerRun`, tests, attach, breakpoints |
+| [Code style](docs/code-style.md) | `.editorconfig` properties: import collapsing, import order, every `ij_java_*` / `ij_kotlin_*` setting |
 | [Troubleshooting](docs/troubleshooting.md) | Gradle sources, server heap, logs, file paths |
 
 <br>
