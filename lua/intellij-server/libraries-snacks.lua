@@ -46,18 +46,36 @@ local function root_for(cwd)
   end
 end
 
+--- Latest refresh per list, so an earlier one finishing does not end the hold
+--- on renders of a later one still running.
+local holds = setmetatable({}, { __mode = "k" }) ---@type table<table, table>
+
 ---@param picker table snacks.Picker
 ---@param target string? Item key to put the cursor on.
 local function refresh(picker, target)
   if not picker or picker.closed then
     return
   end
-  picker.list:set_target()
+  local list = picker.list
+  -- snacks renders the list while it is being refilled, as soon as it holds
+  -- a few items. The node comes after every project file, so those renders
+  -- miss the cursor target and scroll elsewhere until the list is complete.
+  -- Keep showing the old list instead and render once at the end.
+  local hold = {}
+  holds[list] = hold
+  list.update = function() end
+  list:set_target()
   picker:find({
     on_done = function()
+      if holds[list] ~= hold then
+        return
+      end
+      holds[list] = nil
+      list.update = nil -- back to the class method
       if target then
         require("snacks.explorer.actions").reveal(picker, target)
       end
+      list:update({ force = true })
     end,
   })
 end
