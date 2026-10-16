@@ -66,6 +66,37 @@ the files unsigned (a plain request gets 404).
 
 ## Licensing
 
-During the preview period (current), the server is **free to use without a
-[license](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp/#licensing)**. Each preview build expires
-after 30 days. Update the plugin to get a fresh build. Licensing will be introduced with the 1.0 release.
+The free preview period, when the server ran without a license, ended with server 1.0. The server now requires an
+IntelliJ IDEA Ultimate or All Products Pack subscription, or the 30-day IntelliJ IDEA Ultimate trial (see
+[pricing](https://www.jetbrains.com/idea/buy/)).
+
+This plugin is free and open source and takes no money: it does not sell, provide or resell licenses, and has no
+connection to JetBrains' billing. It only lets you use the server from Neovim if you already hold a valid IntelliJ IDEA
+license; the license itself is between you and JetBrains.
+
+If you are already signed in to your JetBrains
+Account on this machine (for example through IntelliJ IDEA or Toolbox), the server finds that license by itself.
+Otherwise activate one from Neovim:
+
+```vim
+:IntellijServerLicense            " what the server is licensed with
+:IntellijServerLicense login      " sign in to a JetBrains Account in the browser
+:IntellijServerLicense trial      " start the 30-day trial
+:IntellijServerLicense code       " enter an activation code
+:IntellijServerLicense server     " use a floating license server
+```
+
+The plugin warns when the server loses its license (with the grace deadline) or runs without one. Without a license
+the server still starts, but refuses every request, so nothing works until you activate one.
+
+On a machine without a browser (over SSH), use the server's own command line instead, with the path to the installed
+server:
+
+```sh
+~/.local/share/nvim/intellij-server/server/bin/intellij-server license status
+~/.local/share/nvim/intellij-server/server/bin/intellij-server license login     # or: activate, trial
+```
+
+or set `INTELLIJ_SERVER_LICENSE` / `INTELLIJ_SERVER_LICENSE_FILE` (license key) or `JETBRAINS_LICENSE_SERVER` (license
+server URL) in the environment Neovim starts the server from. See
+[server-changelog.md](server-changelog.md#licensing) for the protocol.

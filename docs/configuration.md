@@ -250,6 +250,12 @@ pidfile) is never stopped by the plugin. Quitting Neovim while others are
 still connected, `:IntellijServerStop` and `:IntellijServerRestart` only
 disconnect the local clients; other editors are unaffected.
 
+**Updates.** The pidfile also records the server build. When the plugin pins a
+new server version, the first Neovim to start stops the shared server an
+older version spawned and starts the new one; editors still attached to the
+old server reconnect to it. A server of another build that the plugin did not
+spawn is left running, with a warning to restart it.
+
 A Neovim that dies without a clean exit (SIGKILL, a crash) cannot stop the
 server: it keeps running until the next Neovim using it quits. Its lease is
 discarded as soon as another editor notices the pid is gone. When two editors

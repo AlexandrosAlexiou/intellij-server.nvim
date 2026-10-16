@@ -310,6 +310,8 @@ local function spawn_server()
   local args = {
     ("--socket=%s:%d"):format(opts.host, opts.port),
     "--multi-client",
+    "--system-path",
+    process.system_path(),
   }
 
   local eula = server.eula_hash(vim.fn.fnamemodify(bin, ":h:h"))
@@ -369,7 +371,7 @@ local function spawn_server()
     vim.schedule(function()
       local ok, lines = pcall(vim.fn.readfile, M.pidfile())
 
-      if code ~= 0 and ok and table.concat(lines) == tostring(pid) then
+      if code ~= 0 and ok and lines[1] == tostring(pid) then
         vim.fn.delete(M.pidfile())
       end
     end)
@@ -390,7 +392,9 @@ local function spawn_server()
 
   pid = handle:get_pid()
 
-  vim.fn.writefile({ tostring(pid) }, M.pidfile())
+  -- The build too, so a later plugin version can tell this server is not its
+  -- own (process.kill_outdated_server).
+  vim.fn.writefile({ tostring(pid), require("intellij-server.version").build }, M.pidfile())
 
   return pid
 end
@@ -406,6 +410,12 @@ function M.ensure_server(cb)
   if waiters then
     table.insert(waiters, cb)
     return
+  end
+
+  -- A server an older plugin version spawned still holds the port: replace
+  -- it rather than connect to the wrong build.
+  if opts.autostart_server and require("intellij-server.process").kill_outdated_server() then
+    vim.notify("[intellij-server] Stopped the shared server of another server version.", vim.log.levels.INFO)
   end
 
   M.probe(host, port, function(ok)

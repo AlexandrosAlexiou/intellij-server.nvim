@@ -3,7 +3,7 @@ intellij-server.nvim &mdash; IntelliJ IDEA's LSP in Neovim
 
 [<img alt="github" src="https://img.shields.io/badge/github-AlexandrosAlexiou/intellij--server.nvim-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/AlexandrosAlexiou/intellij-server.nvim)
 [<img alt="neovim" src="https://img.shields.io/badge/neovim-0.12+-57A143?style=for-the-badge&labelColor=555555&logo=neovim" height="20">](https://neovim.io/)
-[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-263.6379.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
+[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-263.7084.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
 [<img alt="license" src="https://img.shields.io/github/license/AlexandrosAlexiou/intellij-server.nvim?style=for-the-badge" height="20">](LICENSE)
 
 This plugin runs the [JetBrains IntelliJ Language Server][announcement], the
@@ -43,6 +43,7 @@ and can share one server process across every project and Neovim instance.
 | [Debugging and running](docs/debugging.md) | Code lenses, `:IntellijServerRun`, tests, attach, breakpoints |
 | [Code style](docs/code-style.md) | `.editorconfig` properties: import collapsing, import order, every `ij_java_*` / `ij_kotlin_*` setting |
 | [Troubleshooting](docs/troubleshooting.md) | Gradle sources, server heap, logs, file paths |
+| [Server changelog](docs/server-changelog.md) | What changed between pinned server versions and what the plugin must support |
 
 <br>
 
@@ -99,10 +100,19 @@ Every option is listed in [docs/configuration.md](docs/configuration.md), and
 every command in [docs/features.md](docs/features.md#commands).
 
 > [!important]
-> During the preview period the server is **free to use without a
-> [license](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp/#licensing)**,
-> and each preview build expires after 30 days. Update the plugin to get a
-> fresh build.
+> **The server needs a JetBrains license.** The free preview period, when the
+> server ran without one, ended with server 1.0. The server is JetBrains'
+> product and now requires an **IntelliJ IDEA Ultimate** or **All Products
+> Pack** subscription, or the 30-day IntelliJ IDEA Ultimate trial (see
+> [pricing](https://www.jetbrains.com/idea/buy/)).
+>
+> **This plugin is free and open source, and it takes no money.** It sells
+> nothing, does not provide or resell licenses, and has no connection to
+> JetBrains' billing. It only lets you use the server from Neovim if you already
+> hold a valid IntelliJ IDEA license. If you are signed in to your JetBrains
+> Account through the IDE or Toolbox, the server finds that license by itself;
+> otherwise use `:IntellijServerLicense` (see
+> [docs/installation.md](docs/installation.md#licensing)).
 
 [announcement]: https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp
 

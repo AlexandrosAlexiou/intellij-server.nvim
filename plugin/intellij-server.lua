@@ -107,3 +107,20 @@ end, { bang = true, desc = "Format the buffer with IntelliJ's code-style engine 
 vim.api.nvim_create_user_command("IntellijServerLibraries", function(cmd_opts)
   require("intellij-server.libraries").open({ refresh = cmd_opts.bang })
 end, { bang = true, desc = "Browse the project's External Libraries in oil (! to re-read the workspace)" })
+
+vim.api.nvim_create_user_command("IntellijServerLicense", function(cmd_opts)
+  require("intellij-server.licensing").command(cmd_opts.args)
+end, {
+  nargs = "*",
+  complete = function(arg_lead, cmd_line)
+    if #vim.split(cmd_line, "%s+", { trimempty = true }) > (arg_lead == "" and 1 or 2) then
+      return {}
+    end
+    local names = vim.tbl_keys(require("intellij-server.licensing").subcommands)
+    table.sort(names)
+    return vim.tbl_filter(function(name)
+      return vim.startswith(name, arg_lead)
+    end, names)
+  end,
+  desc = "Show or activate the server license (status, login, logout, subscription, trial, code, server)",
+})
