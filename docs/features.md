@@ -21,6 +21,7 @@
 | `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
 | `:IntellijServerTest [cursor\|file\|module]` | Run the test at the cursor, or every test of the file or module (`:IntellijServerTest!` debugs them) |
 | `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
+| `:IntellijServerLicense [subcommand]` | Show the license (`status`, the default) or activate one: `login` (JetBrains Account, in the browser), `subscription`, `trial`, `code [activation code]`, `server [url]`, `logout` |
 
 ## Standard LSP
 

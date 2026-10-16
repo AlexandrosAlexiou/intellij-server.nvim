@@ -1,6 +1,6 @@
 return {
-  version = "0.0.13",
-  build = "263.6379.0",
+  version = "1.0.27",
+  build = "263.7084.0",
   product = "2026.3",
   base_url = "https://download.jetbrains.com/language-server/intellij-server",
   -- CDN platform key -> uname sysname and normalized arch (see installer.lua).

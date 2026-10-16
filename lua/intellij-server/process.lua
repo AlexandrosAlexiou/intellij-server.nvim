@@ -58,8 +58,9 @@ end
 --- Pid of the shared server *we* spawned, from the pidfile — validated,
 --- because the pidfile can outlive the process (crash, reboot) and the pid can
 --- be recycled: it only counts if it still looks like the server. A stale
---- pidfile is removed.
----@return integer?
+--- pidfile is removed. The second line is the server build it was spawned
+--- from; pidfiles written before the plugin recorded it have none.
+---@return integer? pid, string? build
 local function spawned_server_pid()
   local pidfile = require("intellij-server.connection").pidfile()
   local ok, lines = pcall(vim.fn.readfile, pidfile)
@@ -69,10 +70,26 @@ local function spawned_server_pid()
   end
   local info_ok, info = pcall(vim.api.nvim_get_proc, pid)
   if info_ok and type(info) == "table" and info.name and info.name:find("intellij%-server") then
-    return pid
+    return pid, lines[2]
   end
   vim.fn.delete(pidfile)
   return nil
+end
+
+--- Stop a shared server we spawned from another server build — one an older
+--- plugin version left running. It would otherwise keep serving every editor
+--- that connects to the port, and keep using that build's caches. Editors
+--- still attached to it reconnect to the new server once it is up
+--- (connection.on_client_exit).
+---@return boolean killed
+function M.kill_outdated_server()
+  local pid, build = spawned_server_pid()
+  if not pid or build == require("intellij-server.version").build then
+    return false
+  end
+  M.kill_tree(pid)
+  vim.fn.delete(require("intellij-server.connection").pidfile())
+  return true
 end
 
 --- Kill the shared socket-mode server: the pidfile written at spawn time
@@ -192,10 +209,47 @@ function M.kill_if_idle()
   vim.fn.delete(connection.pidfile())
 end
 
---- Persistent data directory for indexes, config, and logs.
+--- Persistent data directory for config, logs, and the plugin's own state.
 ---@return string
 function M.data_dir()
   return vim.fn.stdpath("data") .. "/intellij-server/data"
+end
+
+--- The platform's per-user cache directory.
+---@return string
+local function caches_root()
+  if vim.fn.has("win32") == 1 then
+    return os.getenv("LOCALAPPDATA") or ((os.getenv("USERPROFILE") or "") .. "/AppData/Local")
+  elseif vim.fn.has("mac") == 1 then
+    return (os.getenv("HOME") or "") .. "/Library/Caches"
+  end
+  return os.getenv("XDG_CACHE_HOME") or ((os.getenv("HOME") or "") .. "/.cache")
+end
+
+--- The server's `--system-path`: per-workspace indexes and the workspace
+--- model, under workspaces/<hash>. One directory per server version, as the
+--- VS Code extension does since 1.0, so a new version never opens caches an
+--- older one wrote. Without the option the server uses the unversioned
+--- JetBrains/IntelliJServer itself.
+---@return string
+function M.system_path()
+  return caches_root() .. "/JetBrains/IntelliJServer/" .. require("intellij-server.version").version
+end
+
+--- Cache directories of other server versions: the unversioned workspaces/
+--- of servers started before the plugin passed `--system-path`, and the
+--- system paths of other versions. Never removed automatically — another
+--- editor may still run an older plugin.
+---@return string[]
+function M.stale_caches()
+  local current = M.system_path()
+  local stale = {}
+  for _, dir in ipairs(vim.fn.glob(vim.fn.fnamemodify(current, ":h") .. "/*", true, true)) do
+    if dir ~= current and vim.fn.isdirectory(dir) == 1 then
+      table.insert(stale, dir)
+    end
+  end
+  return stale
 end
 
 --- Open the server log (see -Didea.log.path in server.build_env) alongside
@@ -215,24 +269,15 @@ end
 --- Paths removed by :IntellijServerClean for one project root.
 --- The server keeps per-workspace state (workspace-model.cache with the
 --- imported modules and SDK bindings, plus the workspace index) under
---- JetBrains/IntelliJServer/workspaces/<hash>. The hash is opaque, but each
+--- <system path>/workspaces/<hash>. The hash is opaque, but each
 --- workspace-model.cache embeds the project's paths, so the dirs belonging to
 --- a root are found by content. Shared stores (the data dir, the analyzer
 --- RocksDB cache) hold state for every project and are left alone.
 ---@param root_dir string
 ---@return string[]
 function M.get_data_paths(root_dir)
-  local caches_root
-  if vim.fn.has("win32") == 1 then
-    caches_root = os.getenv("LOCALAPPDATA") or ((os.getenv("USERPROFILE") or "") .. "/AppData/Local")
-  elseif vim.fn.has("mac") == 1 then
-    caches_root = (os.getenv("HOME") or "") .. "/Library/Caches"
-  else
-    caches_root = os.getenv("XDG_CACHE_HOME") or ((os.getenv("HOME") or "") .. "/.cache")
-  end
-
   local paths = {}
-  for _, dir in ipairs(vim.fn.glob(caches_root .. "/JetBrains/IntelliJServer/workspaces/*", true, true)) do
+  for _, dir in ipairs(vim.fn.glob(M.system_path() .. "/workspaces/*", true, true)) do
     local cache = io.open(dir .. "/index/intellij-server/workspace-model.cache", "rb")
     if cache then
       local content = cache:read("*a") or ""

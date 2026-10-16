@@ -163,7 +163,7 @@ on <host>:<port>` with `autostart_server = false`.
 The first Neovim to need the server spawns it and waits `connect_timeout_ms` (default 60 s) for it to accept
 connections. On a slow machine or a cold start of a large install, raise the timeout. If the spawn itself failed,
 the launcher's output is in `~/.local/share/nvim/intellij-server/data/socket-server-launch.log` — a missing
-`--eula` hash, an expired preview build, or a port already bound by something that is not an intellij-server all
+`--eula` hash, an expired preview build (servers before 1.0), or a port already bound by something that is not an intellij-server all
 end up there. Whatever else is bound to the port also causes the opposite failure: the probe succeeds, the LSP
 handshake doesn't. Pick a different `connection.port` in that case.
 
@@ -240,9 +240,11 @@ The plugin stores all IntelliJ server indexes, caches, config, and logs under Ne
 ```
 
 These persist across reboots (unlike the default temp directory behavior). Per-project workspace state
-(imported modules, SDK bindings, the workspace index) lives under the system cache directory, on macOS
-`~/Library/Caches/JetBrains/IntelliJServer/workspaces/`. To clean the current project's workspace caches and
-reimport:
+(imported modules, SDK bindings, the workspace index) lives under the system cache directory, one directory per
+server version, on macOS `~/Library/Caches/JetBrains/IntelliJServer/<version>/workspaces/`. A new server version
+starts with empty caches and reindexes; the plugin lists the directories older versions left behind once per
+session, and you can delete them when no editor uses them anymore (servers before 1.0.27 used
+`IntelliJServer/workspaces/` directly). To clean the current project's workspace caches and reimport:
 
 ```vim
 :IntellijServerClean
@@ -258,7 +260,7 @@ cache in `~/Library/Caches/JetBrains/analyzer`) are not removed; delete them man
 ```
 ~/.local/share/nvim/intellij-server/
 ├── server/          # extracted server (bin, lib, jbr, plugins, etc.)
-└── .version         # version marker (e.g., "0.0.13+263.6379.0")
+└── .version         # version marker (e.g., "1.0.27+263.7084.0")
 ```
 
 The archive is ~370 MB. If the download is interrupted (network drop, `curl: (18) transfer closed`, quitting Neovim),

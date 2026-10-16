@@ -290,6 +290,46 @@ local function is_abs_path(path)
   return false
 end
 
+local build_reported = false
+
+--- Warn when the shared server is not the build this plugin pins — one
+--- started by hand or by another tool, which the plugin does not replace on
+--- its own (process.kill_outdated_server only replaces servers it spawned).
+---@param client vim.lsp.Client
+local function check_server_build(client)
+  local build = require("intellij-server.version").build
+  local running = client.server_info and client.server_info.version
+  if build_reported or not running or running:find(build, 1, true) then
+    return
+  end
+  build_reported = true
+  vim.notify(
+    ("[intellij-server] Connected to server %s, but the plugin expects build %s.\n"):format(running, build)
+      .. "Restart it with :IntellijServerRestart.",
+    vim.log.levels.WARN
+  )
+end
+
+local stale_reported = false
+
+--- Point out caches older server versions left behind, once per session.
+local function report_stale_caches()
+  if stale_reported then
+    return
+  end
+  stale_reported = true
+  local stale = require("intellij-server.process").stale_caches()
+  if #stale > 0 then
+    vim.notify(
+      "[intellij-server] Caches of other server versions can be deleted once no editor uses them:\n  "
+        .. table.concat(vim.tbl_map(function(dir)
+          return vim.fn.fnamemodify(dir, ":~")
+        end, stale), "\n  "),
+      vim.log.levels.INFO
+    )
+  end
+end
+
 --- Start or attach the LSP client to a buffer.
 ---@param bufnr integer?
 function M.start(bufnr)
@@ -319,6 +359,9 @@ function M.start(bufnr)
   build_log.opts = vim.tbl_extend("force", build_log.opts, M.config.build_log or {})
 
   local capabilities = vim.lsp.protocol.make_client_capabilities()
+  -- License state and activation are ours to show (intellij-server.licensing),
+  -- as the VS Code client declares.
+  capabilities.experimental = vim.tbl_extend("force", capabilities.experimental or {}, { licensingUi = true })
   if M.config.capabilities then
     capabilities = vim.tbl_deep_extend("force", capabilities, M.config.capabilities)
   end
@@ -433,7 +476,11 @@ function M.start(bufnr)
   end
 
   -- The server's own notifications and requests (intellij-server.extensions).
-  local handlers = require("intellij-server.extensions").handlers()
+  local handlers = vim.tbl_extend(
+    "error",
+    require("intellij-server.extensions").handlers(),
+    require("intellij-server.licensing").handlers()
+  )
   handlers["workspace/configuration"] = configuration_handler
   -- The completion apply command positions the caret via showDocument;
   -- place it in the current buffer instead of switching windows/scrolling.
@@ -460,6 +507,7 @@ function M.start(bufnr)
     -- inserts nothing, server applies text/imports/caret). Completion is
     -- otherwise broken in Neovim. See lua/intellij-server/completion.lua.
     on_init = function(client)
+      check_server_build(client)
       require("intellij-server.completion").attach(client)
       require("intellij-server.semantic-tokens").attach(client)
       require("intellij-server.semantic-tokens").setup()
@@ -498,6 +546,7 @@ function M.start(bufnr)
     -- Tell other editors this one uses the server, so none of them stops it
     -- on exit while we are still here.
     connection.acquire_lease()
+    report_stale_caches()
 
     if lsp_config.cmd then
       vim.lsp.start(lsp_config, start_opts)
