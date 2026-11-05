@@ -42,18 +42,19 @@ Run `:IntellijServerInstall` to download the server binary.
 
 The plugin launches the IntelliJ LSP server (`server/bin/intellij-server --socket --multi-client`, or through its
 `lsp-router` in router mode), which is a headless IntelliJ IDEA instance stripped for language server use, and talks
-the standard LSP protocol to it. The server
-bundles its own JBR (JetBrains Runtime), no external JDK is required to run the server itself.
+the standard LSP protocol to it. The server bundles its own JBR (JetBrains Runtime), no external JDK is required to run the server itself.
 
 The server is started detached, so it leads its own process group: the JVM and
 Maven or Gradle processes it spawns share that group and are killed with it on
 `:IntellijServerStop`, `:IntellijServerRestart` and `:IntellijServerClean`, even
 after being reparented to PID 1.
 
-In [socket mode](configuration.md#shared-server-socket-mode) the plugin instead connects to a single shared
+In [socket mode](configuration.md#shared-server-socket-mode), the default, the plugin connects to a single shared
 server (`--socket=<host>:<port> --multi-client`) over TCP, spawning it on demand. One process serves every project
 and every Neovim instance. The server does not exit on its own, so the last Neovim to quit stops it (on Windows,
-macOS and Linux alike), and `:IntellijServerStop!` force-kills it.
+macOS and Linux alike), and `:IntellijServerStop!` force-kills it. In
+[router mode](configuration.md#per-project-servers-router-mode) each project root gets its own server instead, which
+the server's `lsp-router` starts, shares between the Neovims on that root and stops once they are gone.
 
 The server binary is downloaded from JetBrains CDN. The plugin vendors binaries from the
 [JetBrains IntelliJ LSP VS Code extension](https://marketplace.visualstudio.com/items?itemName=JetBrains.intellij-server):
