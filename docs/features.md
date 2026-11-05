@@ -15,13 +15,14 @@
 | `:IntellijServerVersion` | Show installed version info |
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
+| `:IntellijServerBuild [workspace]` | Build the current file's module on the server with its build tool, or every module; output in the build log (server 1.0.86+) |
 | `:IntellijServerLibraries` | Browse dependency and JDK sources as an External Libraries tree in oil.nvim (`!` re-reads the workspace) |
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
 | `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
 | `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
 | `:IntellijServerTest [cursor\|file\|module]` | Run the test at the cursor, or every test of the file or module (`:IntellijServerTest!` debugs them) |
 | `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
-| `:IntellijServerLicense [subcommand]` | Show the license (`status`, the default) or activate one: `login` (JetBrains Account, in the browser), `subscription`, `trial`, `code [activation code]`, `server [url]`, `logout` |
+| `:IntellijServerLicense [subcommand]` | Show the license (`status`, the default) or activate one: `login` (JetBrains Account, in the browser), `subscription`, `trial`, `code [activation code]`, `server [url]`, `authorize [address]` (finish a license server sign-in over SSH), `logout` |
 
 ## Standard LSP
 

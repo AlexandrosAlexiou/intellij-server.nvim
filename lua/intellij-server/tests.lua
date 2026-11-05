@@ -437,7 +437,8 @@ function M.run_items(items, opts)
   local test_ids = vim.tbl_map(function(item)
     return item.id
   end, items)
-  local request = { testIds = test_ids, uniqueIds = {}, tags = {} }
+  local config = require("intellij-server").config.tests or {}
+  local request = { testIds = test_ids, uniqueIds = {}, tags = config.tags or {} }
   execute(client, "intellij.jvm.resolveTestLaunch", { request }, function(err, launches)
     if err or type(launches) ~= "table" or #launches == 0 then
       notify(("%s: intellij.jvm.resolveTestLaunch failed: %s"):format(run.label, err or "no way to run these tests"))
@@ -457,6 +458,9 @@ function M.run_items(items, opts)
         additionalClassPaths = launch.runtimeClasspath,
         -- Left out when empty: an empty Lua table goes out as a JSON object.
         additionalModulePaths = not vim.tbl_isempty(launch.runtimeModulePath or {}) and launch.runtimeModulePath or nil,
+        vmArgs = config.vm_args,
+        env = config.env,
+        cwd = config.cwd and vim.fn.fnamemodify(vim.fn.expand(config.cwd), ":p") or nil,
         noDebug = not opts.debug,
         -- The output comes back as `telemetry` output events: the build's,
         -- then the runner's service messages.

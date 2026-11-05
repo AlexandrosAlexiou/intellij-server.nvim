@@ -34,7 +34,7 @@ function M.opts()
   local config = require("intellij-server").config or {}
 
   return vim.tbl_extend("keep", config.connection or {}, {
-    mode = "stdio",
+    mode = "socket",
     host = "127.0.0.1",
     port = 9999,
     autostart_server = true,
@@ -626,7 +626,8 @@ function M.on_client_exit(root_dir, client_id)
       return
     end
 
-    if vim.v.exiting ~= vim.NIL or reconnecting[root_dir] then
+    -- The router is a child of this Neovim: nothing to wait for on a port.
+    if vim.v.exiting ~= vim.NIL or reconnecting[root_dir] or M.opts().mode == "router" then
       return
     end
 

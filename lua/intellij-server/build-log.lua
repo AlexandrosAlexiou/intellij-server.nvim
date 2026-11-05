@@ -70,6 +70,60 @@ function M.clear()
   end
 end
 
+local next_build = 0
+
+--- Build on the server (`intellij.build`, server 1.0.86+), the VS Code
+--- extension's `intellij: build` task: the module of `uri`, or every module
+--- without one. The server runs the build tool and streams its lines as
+--- `intellij/buildOutput` (see output_handler); the answer carries the exit
+--- code, or none and the reason nothing could build.
+---@param client vim.lsp.Client
+---@param uri string?
+function M.build(client, uri)
+  next_build = next_build + 1
+  local target = uri and vim.fn.fnamemodify(vim.uri_to_fname(uri), ":~:.") or "workspace"
+  M.append({ "", ("── build started: %s ──"):format(target) })
+  if M.opts.notify then
+    vim.notify(("[intellij-server] Build of %s started — :IntellijServerBuildLog to follow"):format(target))
+  end
+  if M.opts.open_on_start then
+    M.open()
+  end
+  -- checkoutTools: a module no build tool imported may be built by a tool
+  -- present in the checkout, as the VS Code task allows.
+  local args = { uri = uri, buildId = "nvim-" .. next_build, checkoutTools = true }
+  client:request("workspace/executeCommand", { command = "intellij.build", arguments = { args } }, function(err, result)
+    result = type(result) == "table" and result or {}
+    local failed, summary
+    if err then
+      failed, summary = true, "could not start: " .. (err.message or vim.inspect(err))
+    elseif type(result.exitCode) ~= "number" then
+      summary = result.reason or "nothing to build"
+    else
+      failed = result.exitCode ~= 0
+      summary = failed and ("failed (exit code %d)"):format(result.exitCode) or "finished"
+    end
+    if type(result.unsupported) == "table" and #result.unsupported > 0 then
+      summary = summary .. "; not built: " .. table.concat(result.unsupported, ", ")
+    end
+    M.append({ ("── build of %s %s ──"):format(target, summary) })
+    if M.opts.notify then
+      vim.notify(("[intellij-server] Build of %s %s"):format(target, summary), failed and vim.log.levels.ERROR or nil)
+    end
+    if failed and M.opts.open_on_failure then
+      M.open()
+    end
+  end)
+end
+
+--- LSP handler for `intellij/buildOutput`: one line of a build's output.
+---@param params { buildId: string, category: string, line: string }
+function M.output_handler(_, params, _)
+  if params and type(params.line) == "string" then
+    M.append(vim.split(params.line, "\n", { plain = true }))
+  end
+end
+
 --- LSP handler for the `intellij/importLog` notification.
 ---@param params { started?: boolean, message?: string, failed?: boolean, succeeded?: boolean, tool?: string }
 function M.handler(_, params, _)

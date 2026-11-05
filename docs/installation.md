@@ -40,8 +40,9 @@ Run `:IntellijServerInstall` to download the server binary.
 
 ## How it works
 
-The plugin launches the IntelliJ LSP server (`server/bin/intellij-server --stdio`) which is a headless IntelliJ IDEA
-instance stripped for language server use. It communicates over stdin/stdout using the standard LSP protocol. The server
+The plugin launches the IntelliJ LSP server (`server/bin/intellij-server --socket --multi-client`, or through its
+`lsp-router` in router mode), which is a headless IntelliJ IDEA instance stripped for language server use, and talks
+the standard LSP protocol to it. The server
 bundles its own JBR (JetBrains Runtime), no external JDK is required to run the server itself.
 
 The server is started detached, so it leads its own process group: the JVM and
@@ -84,7 +85,13 @@ Otherwise activate one from Neovim:
 :IntellijServerLicense trial      " start the 30-day trial
 :IntellijServerLicense code       " enter an activation code
 :IntellijServerLicense server     " use a floating license server
+:IntellijServerLicense authorize  " finish a license server sign-in (over SSH)
 ```
+
+A license server can ask for a sign-in in the browser, which then redirects to the server on `localhost`. Over SSH
+that redirect cannot reach it and the browser shows an error page; the plugin points this out, and
+`:IntellijServerLicense authorize` with that page's address (`http://localhost:<port>/?code=…`) completes the sign-in
+(server 1.0.86+).
 
 The plugin warns when the server loses its license (with the grace deadline) or runs without one. Without a license
 the server still starts, but refuses every request, so nothing works until you activate one.

@@ -12,6 +12,14 @@
 ---   jetbrains/licensing/trial/startAnonymous   -> { isSuccess, errorMessage? }
 ---   jetbrains/licensing/activationCode/use     { activationCode } -> boolean
 ---   jetbrains/licensing/licenseServer/add      { serverAddress } -> { status, errorMessage? }
+---   jetbrains/licensing/licenseServer/completeAuthorization (1.0.86+)
+---                                              { redirectAddress } -> { errorMessage? }
+---
+--- A license server that wants a sign-in opens it in the browser, which
+--- redirects to a loopback listener of the server. Over SSH that redirect
+--- cannot reach the server: the browser shows an error page instead, and the
+--- address of that page completes the sign-in (`authorize`). The state says
+--- one is pending with licenseServerFlowState.awaitingAuthorizationAttempt.
 ---
 --- Without a license the server reports `featuresDeclined` and why
 --- (`parkedReason`); a license it loses is tolerated until `graceDeadline`.
@@ -117,12 +125,26 @@ local function condition(state)
   return nil
 end
 
+--- The sign-in attempt already pointed out, so each push names it once.
+---@type number?
+local prompted_attempt = nil
+
 ---@param state table
 local function on_state(state)
   if type(state) ~= "table" then
     return
   end
   M.state = state
+  local attempt = vim.tbl_get(state, "licenseServerFlowState", "awaitingAuthorizationAttempt")
+  -- Like the VS Code extension, only where the browser cannot reach the server.
+  if attempt and attempt ~= prompted_attempt and os.getenv("SSH_CONNECTION") then
+    prompted_attempt = attempt
+    notify(
+      "License server sign-in pending. After sign-in the browser shows an error page:"
+        .. " paste its address into :IntellijServerLicense authorize.",
+      vim.log.levels.INFO
+    )
+  end
   local current = condition(state)
   if current == reported then
     return
@@ -323,6 +345,29 @@ function M.license_server(address)
   end
 end
 
+--- Complete a license server sign-in with the address the browser's error
+--- page shows (http://localhost:<port>/?code=…).
+---@param address string?
+function M.authorize(address)
+  local function complete(value)
+    if not value or vim.trim(value) == "" then
+      return
+    end
+    request("jetbrains/licensing/licenseServer/completeAuthorization", { redirectAddress = vim.trim(value) }, function(result)
+      if type(result) == "table" and result.errorMessage then
+        notify("License server sign-in: " .. result.errorMessage)
+      else
+        notify("License server sign-in completed.", vim.log.levels.INFO)
+      end
+    end)
+  end
+  if address and address ~= "" then
+    complete(address)
+  else
+    vim.ui.input({ prompt = "After sign-in the browser shows an error page. Paste its address here: " }, complete)
+  end
+end
+
 ---@type table<string, fun(arg: string?)>
 M.subcommands = {
   status = M.status,
@@ -332,6 +377,7 @@ M.subcommands = {
   trial = M.trial,
   code = M.activation_code,
   server = M.license_server,
+  authorize = M.authorize,
 }
 
 --- :IntellijServerLicense [subcommand [argument]]

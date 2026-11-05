@@ -158,6 +158,15 @@ with breakpoints when debugging. Kotlin tests need server 1.0.86.
 | Every test in the module | `:IntellijServerTest module` | `:IntellijServerTest! module` |
 | Lua | `require("intellij-server.tests").run({ scope = "cursor" })` | `{ scope = "cursor", debug = true }` |
 
+JVM arguments, environment variables, a working directory and a tag filter for
+test runs come from the `tests` option (the VS Code `java.test.config` setting):
+
+```lua
+require("intellij-server").setup({
+  tests = { vm_args = { "-Xmx1g" }, env = { SPRING_PROFILES_ACTIVE = "test" }, tags = { "!slow" } },
+})
+```
+
 The test at the cursor is the last test method declared at or above the cursor
 line, or the class when the cursor is above the first one. `module` runs the
 module the file belongs to; outside a file with tests it asks which module,
@@ -210,6 +219,6 @@ configurations take `port`, `hostName` (default `localhost`) and `timeout` (ms, 
   [Troubleshooting](troubleshooting.md#mill-projects-rundebug-fails-with-classnotfoundexception-for-the-main-class).
 - Tests are run by IntelliJ's starter, not by Maven or Gradle: surefire and
   Gradle `test {}` settings (system properties, JVM arguments, forking) do not
-  apply. For those, run the test under the build tool with JDWP enabled and
+  apply; the `tests` option covers JVM arguments and environment. For the rest, run the test under the build tool with JDWP enabled and
   attach — `mvnDebug test -Dtest=MyTest` or `gradle test --tests MyTest
   --debug-jvm`, then `:IntellijServerAttach 5005`.

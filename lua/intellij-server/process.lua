@@ -235,6 +235,10 @@ function M.system_path()
   return caches_root() .. "/JetBrains/IntelliJServer"
 end
 
+--- What servers from 1.0.86 on use under system_path(): the indexes, and the
+--- config/system directories lsp-router gives the servers it starts.
+local LIVE_CACHE_DIRS = { workspaces = true, instances = true }
+
 --- Cache directories older server versions left behind: the per-version
 --- system paths (IntelliJServer/1.0.27, …) the plugin passed before 1.0.86.
 --- Never removed automatically — another editor may still run an older
@@ -243,7 +247,7 @@ end
 function M.stale_caches()
   local stale = {}
   for _, dir in ipairs(vim.fn.glob(M.system_path() .. "/*", true, true)) do
-    if vim.fn.fnamemodify(dir, ":t") ~= "workspaces" and vim.fn.isdirectory(dir) == 1 then
+    if not LIVE_CACHE_DIRS[vim.fn.fnamemodify(dir, ":t")] and vim.fn.isdirectory(dir) == 1 then
       table.insert(stale, dir)
     end
   end
@@ -253,7 +257,10 @@ end
 --- Open the server log (see -Didea.log.path in server.build_env) alongside
 --- Neovim's LSP RPC log, both scrolled to the end.
 function M.show_logs()
-  local server_log = M.data_dir() .. "/log/intellij-server.log"
+  -- A router-started server logs into its own directory, and says where.
+  local client = vim.lsp.get_clients({ name = "intellij-server", bufnr = 0 })[1]
+  local server_log = client and vim.tbl_get(client.server_capabilities or {}, "experimental", "logFile")
+    or M.data_dir() .. "/log/intellij-server.log"
   if vim.fn.filereadable(server_log) == 1 then
     vim.cmd("split | edit " .. vim.fn.fnameescape(server_log) .. " | normal! G")
   else
@@ -470,7 +477,8 @@ function M.clean_and_restart()
           end)
         end,
         250,
-        5000,
+        -- A router-started server stops 10 s after its last editor leaves.
+        require("intellij-server.connection").opts().mode == "router" and 15000 or 5000,
         function(free)
           if not free then
             vim.notify(
