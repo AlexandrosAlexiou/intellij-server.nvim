@@ -859,11 +859,6 @@ function M.open(opts)
   end)
 end
 
---- Drop cached models (e.g. after a server restart).
-function M.reset()
-  models = {}
-end
-
 ---@param opts IntellijLibraryOpts?
 function M.setup(opts)
   M.opts = vim.tbl_extend("force", M.opts, opts or {})

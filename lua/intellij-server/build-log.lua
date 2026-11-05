@@ -63,13 +63,6 @@ function M.open()
   vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(buf), 0 })
 end
 
---- Clear the log buffer.
-function M.clear()
-  if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
-  end
-end
-
 local next_build = 0
 
 --- Build on the server (`intellij.build`, server 1.0.86+), the VS Code

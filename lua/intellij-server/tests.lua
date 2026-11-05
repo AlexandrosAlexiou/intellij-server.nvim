@@ -159,7 +159,6 @@ end
 ---@field failures table<string, table> item id -> failure attributes
 ---@field counts { started: integer, failed: integer, skipped: integer }
 ---@field pending string partial last output line
----@field tail string[] last plain output lines, for a run that reports nothing
 ---@field launches table[] remaining DAP configurations
 ---@field exit_code integer?
 ---@field started integer
@@ -238,10 +237,6 @@ local function feed(run, text)
       on_message(run, name, attributes)
     else
       table.insert(plain, line)
-      table.insert(run.tail, line)
-      if #run.tail > 20 then
-        table.remove(run.tail, 1)
-      end
     end
   end
   if #plain > 0 then
@@ -421,7 +416,6 @@ function M.run_items(items, opts)
     failures = {},
     counts = { started = 0, failed = 0, skipped = 0 },
     pending = "",
-    tail = {},
     launches = {},
     started = vim.uv.hrtime(),
   }
