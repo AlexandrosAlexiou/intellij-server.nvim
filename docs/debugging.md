@@ -58,9 +58,6 @@ the program runs:
 - **unset**: the server's choice — the build tool when it can run the module (Gradle), else a
   JVM process. The Run/Debug lenses pass the tool the server named for the module.
 
-Configurations written for older versions keep working: `launcher = "jvm"` / `"gradle"` map
-to `tool`, `"auto"` to no tool, and `gradleArgs` to `toolArgs`.
-
 Launch configurations support:
 
 | Property      | Type       | Description |
@@ -74,7 +71,7 @@ Launch configurations support:
 | `tool`        | `string`   | `"java"`, `"gradle"` or `"bazel"` — see above. Default: the server's choice |
 | `projectPath` | `string`   | Gradle project to run in (`":app"`) or Bazel target. Default: the module's |
 | `sourceSet`   | `string`   | Gradle only: source set whose runtime classpath the program runs on (`"main"`, `"test"`). Default: the module's |
-| `toolArgs`    | `string[]` | Arguments for the build tool invocation itself (`"--offline"`, `"-Pkey=value"`); `gradleArgs` is accepted too |
+| `toolArgs`    | `string[]` | Arguments for the build tool invocation itself (`"--offline"`, `"-Pkey=value"`) |
 | `stepFilters` | `table`    | `{ skipClasses = { "java.*" }, skipSynthetics = true, skipConstructors = true, skipGetters = true, skipClassLoaders = true }` |
 | `noDebug`     | `boolean`  | Run without attaching the debugger |
 | `console`     | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), `externalTerminal`, or `none` (output as DAP events; what test runs use) |

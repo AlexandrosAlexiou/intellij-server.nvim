@@ -13,10 +13,6 @@ local COMMAND_TIMEOUT_MS = 30000
 --- initializationOptions.runMainCodeLens is on (see intellij-server.start).
 M.RUN_MAIN_COMMAND = "intellij.jvm.runMain"
 
---- `tool` for the `launcher` values of configurations written before server
---- 1.0.86; "auto" maps to no tool, which lets the server choose.
-local TOOL_OF_LAUNCHER = { jvm = "java", gradle = "gradle" }
-
 --- Consoles the program output is shown in a terminal buffer for.
 local TERMINAL_CONSOLES = { integratedTerminal = true, externalTerminal = true }
 
@@ -115,11 +111,6 @@ function M.enrich_config(config, on_config)
     notify('Launch configurations require "mainClass"')
     return
   end
-  if config.tool == nil and config.launcher then
-    config.tool = TOOL_OF_LAUNCHER[config.launcher]
-  end
-  -- The adapter's name for the build tool's arguments, as dap.ts maps them.
-  config.toolArgs = config.toolArgs or config.gradleArgs
   config.console = config.console or "integratedTerminal"
   on_config(config)
 end
@@ -322,7 +313,6 @@ function M.setup()
   --   projectPath (string)    Gradle project (":app") or Bazel target
   --   sourceSet   (string)    Gradle source set ("main", "test")
   --   toolArgs    (string[])  arguments for the build tool invocation itself
-  --               (`gradleArgs` is accepted too)
   --   args        (string[])  program arguments
   --   vmArgs      (string[])  JVM arguments, e.g. { "-Xmx512m", "-ea" }
   --   env         (table)     extra environment variables for the process
