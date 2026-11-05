@@ -310,8 +310,6 @@ local function spawn_server()
   local args = {
     ("--socket=%s:%d"):format(opts.host, opts.port),
     "--multi-client",
-    "--system-path",
-    process.system_path(),
   }
 
   local eula = server.eula_hash(vim.fn.fnamemodify(bin, ":h:h"))

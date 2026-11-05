@@ -47,7 +47,7 @@ Neovim's built-in LSP client with no configuration.
 | Inlay hints | enabled on attach by the plugin — `inlay_hints = { enabled = false }` to opt out, or toggle with `vim.lsp.inlay_hint.enable()` |
 | Folding range | wired on attach: `foldexpr = v:lua.vim.lsp.foldexpr()`, folds start open — `folding = { enabled = false }` to opt out; use `zc`/`zo`/`za` |
 | Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods and the Run Test / Debug Test lenses above tests when nvim-dap is available. VS Code codicon markup in titles is swapped for Nerd Font glyphs and lenses are aligned with the code they sit above (`icons`, `align`); `code_lens = { enabled = false }` to opt out |
-| Tests | `:IntellijServerTest` runs the test at the cursor, `:IntellijServerTest!` debugs it; `file` and `module` scopes, lenses above every test — see [Debugging](debugging.md#tests) |
+| Tests | Java and Kotlin. `:IntellijServerTest` runs the test at the cursor, `:IntellijServerTest!` debugs it; `file` and `module` scopes, lenses above every test — see [Debugging](debugging.md#tests) |
 | Refactoring prompts | choices a refactoring offers (where to initialize an extracted field, whether inlining removes the method) come as `vim.ui.select`; conflicts it finds as a confirm prompt plus the quickfix list — see below |
 | Call hierarchy | `vim.lsp.buf.incoming_calls()` / `vim.lsp.buf.outgoing_calls()` |
 | Type hierarchy | `vim.lsp.buf.typehierarchy("subtypes")` / `("supertypes")` |

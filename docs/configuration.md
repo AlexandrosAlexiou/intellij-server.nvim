@@ -112,15 +112,7 @@ require("intellij-server").setup({
   -- the server's Run/Debug code lenses above main methods
   -- (initializationOptions.runMainCodeLens).
   dap = {
-    enabled = true,  -- requires nvim-dap
-    -- Compile the module with its build tool before a JVM launch or a test run
-    -- (the VS Code extension's pre-launch build task). Output goes to
-    -- :IntellijServerBuildLog.
-    build_before_launch = true,
-    -- Extra arguments appended to the server's build command, e.g. for a Maven
-    -- build cache that restores modules without their test classes:
-    -- build_args = { "-Dmaven.build.cache.enabled=false" },
-    build_args = nil,
+    enabled = true,  -- requires nvim-dap; the server builds the module before every launch
   },
 
   -- Explicit project imports (initializationOptions.projects), equivalent to

@@ -81,10 +81,11 @@ The build ran and reported success, but the test class is not on disk. Seen with
 the Maven build cache extension (`.mvn/extensions.xml`, "Restoring project from
 build cache"): it restores a cached build that holds no test classes and skips
 `compiler:testCompile`. Check `target/test-classes`; if it is empty, switch the cache
-off for the plugin's builds:
+off for the project. The server runs the build itself (since 1.0.86), so the plugin cannot add
+arguments to it; a line in `.mvn/maven.config` reaches every Maven run:
 
-```lua
-dap = { build_args = { "-Dmaven.build.cache.enabled=false" } },
+```text
+-Dmaven.build.cache.enabled=false
 ```
 
 ## Mill projects: Run/Debug fails with `ClassNotFoundException` for the main class
@@ -105,9 +106,9 @@ out/<module>/internalGenIdea/ideaCompileOutput.dest/classes
 ```
 
 which is a directory nothing ever compiles into: Mill itself compiles to
-`out/<module>/compile.dest/classes`, and the server has no build command for Mill (the pre-launch
-build via `intellij.java.resolveBuildCommand` covers Maven, Gradle, Bazel and JPS only).
-The launch classpath comes straight from the project model (`intellij.java.resolveLaunch`), so
+`out/<module>/compile.dest/classes`, and the server has no build command for Mill (the build
+it runs before a launch covers Maven, Gradle, Bazel and JPS only).
+The launch classpath comes straight from the project model, so
 `java` starts with a classpath of empty directories and the main class is not found. Language
 features are unaffected because the LSP reads sources, not compiled output — which is why hover
 works while Run fails.
@@ -240,11 +241,11 @@ The plugin stores all IntelliJ server indexes, caches, config, and logs under Ne
 ```
 
 These persist across reboots (unlike the default temp directory behavior). Per-project workspace state
-(imported modules, SDK bindings, the workspace index) lives under the system cache directory, one directory per
-server version, on macOS `~/Library/Caches/JetBrains/IntelliJServer/<version>/workspaces/`. A new server version
-starts with empty caches and reindexes; the plugin lists the directories older versions left behind once per
-session, and you can delete them when no editor uses them anymore (servers before 1.0.27 used
-`IntelliJServer/workspaces/` directly). To clean the current project's workspace caches and reimport:
+(imported modules, SDK bindings, the workspace index) lives under the system cache directory, on macOS
+`~/Library/Caches/JetBrains/IntelliJServer/workspaces/`; the server versions the index format itself. For server
+1.0.27 the plugin kept one directory per server version (`IntelliJServer/<version>/workspaces/`); it lists
+those once per session, and you can delete them when no editor uses them anymore. To clean the current project's
+workspace caches and reimport:
 
 ```vim
 :IntellijServerClean
@@ -260,7 +261,7 @@ cache in `~/Library/Caches/JetBrains/analyzer`) are not removed; delete them man
 ```
 ~/.local/share/nvim/intellij-server/
 ├── server/          # extracted server (bin, lib, jbr, plugins, etc.)
-└── .version         # version marker (e.g., "1.0.27+263.7084.0")
+└── .version         # version marker (e.g., "1.0.86+271.2085.0")
 ```
 
 The archive is ~370 MB. If the download is interrupted (network drop, `curl: (18) transfer closed`, quitting Neovim),

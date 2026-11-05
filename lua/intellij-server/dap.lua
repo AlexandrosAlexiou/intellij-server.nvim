@@ -6,17 +6,19 @@ local M = {}
 
 local has_dap, dap = pcall(require, "dap")
 
---- Same budget the VS Code extension gives its launch-resolution commands.
+--- Same budget the VS Code extension gives its server commands.
 local COMMAND_TIMEOUT_MS = 30000
 
 --- Code lens command the server emits for main entry points when
 --- initializationOptions.runMainCodeLens is on (see intellij-server.start).
 M.RUN_MAIN_COMMAND = "intellij.jvm.runMain"
 
---- Build tools whose own launch the server can drive
---- (`intellij.java.resolveBuildToolLaunch` reports the tool id). Gradle
---- compiles as part of running, so a launch through it needs no build step.
-local BUILD_TOOL_LAUNCHERS = { gradle = true }
+--- `tool` for the `launcher` values of configurations written before server
+--- 1.0.86; "auto" maps to no tool, which lets the server choose.
+local TOOL_OF_LAUNCHER = { jvm = "java", gradle = "gradle" }
+
+--- Consoles the program output is shown in a terminal buffer for.
+local TERMINAL_CONSOLES = { integratedTerminal = true, externalTerminal = true }
 
 ---@return vim.lsp.Client?
 local function lsp_client()
@@ -25,19 +27,6 @@ end
 
 local function notify(msg, level)
   vim.notify("[intellij-server] " .. msg, level or vim.log.levels.ERROR)
-end
-
---- A list for the wire, or nil when there is nothing in it. An empty Lua table
---- encodes as a JSON object, which the server's list fields reject
---- ("Expected JsonArray"); leaving the key out is what "no value" means to it.
----@generic T
----@param list T[]?
----@return T[]?
-local function non_empty(list)
-  if type(list) == "table" and #list > 0 then
-    return list
-  end
-  return nil
 end
 
 --- workspace/executeCommand with a timeout, so a wedged resolution cannot
@@ -69,36 +58,6 @@ function M.execute_command(client, command, arguments, on_done)
   client:request("workspace/executeCommand", { command = command, arguments = arguments }, function(err, result)
     finish(err and (err.message or vim.inspect(err)) or nil, result)
   end, 0)
-end
-
---- Compile the module owning `uri` with its build tool (Maven/Gradle/Bazel/JPS,
---- whatever `intellij.java.resolveBuildCommand` says), streaming the output to
---- the build log — the VS Code extension's pre-launch build task. Nothing to
---- build, or no way to ask, counts as built: what is already compiled runs,
---- the same fallback the VS Code lens takes.
----@param client vim.lsp.Client
----@param uri string
----@param on_done fun(ok: boolean)
-function M.build_module(client, uri, on_done)
-  M.execute_command(client, "intellij.java.resolveBuildCommand", { { uri = uri } }, function(err, resolved)
-    if err then
-      notify(("build skipped, intellij.java.resolveBuildCommand failed: %s"):format(err), vim.log.levels.WARN)
-      on_done(true)
-      return
-    end
-    if type(resolved) ~= "table" or not resolved.supported or type(resolved.command) ~= "table" or #resolved.command == 0 then
-      on_done(true)
-      return
-    end
-    -- Extra arguments from setup(), e.g. to switch off a build cache that
-    -- restores a module without its test classes.
-    local command = vim.list_extend(vim.list_extend({}, resolved.command), (require("intellij-server").config.dap or {}).build_args or {})
-    require("intellij-server.build-log").run({
-      tool = resolved.tool,
-      command = command,
-      cwd = resolved.cwd,
-    }, on_done)
-  end)
 end
 
 --- Start the debug server and return the port.
@@ -134,201 +93,83 @@ function M.start_debug_server(callback)
   end, 0)
 end
 
---- Fill in what a launch configuration leaves out, from the project model.
---- This mirrors the VS Code extension's launch resolution (dap.ts): the
---- adapter only ever receives fully resolved arguments, which is why
---- `mainClass` (or a `file`) is enough to launch anything.
----
----   file      -> intellij.java.resolveClassDocument { fqn }
----
----   launcher = "auto" (what the Run/Debug lens uses)
----             -> intellij.java.resolveBuildToolLaunch { uri, mainClass }
----                launches through the build tool when it can run the module
----                (Gradle), otherwise as a plain JVM process.
----   launcher = "gradle"
----             -> intellij.java.resolveBuildToolLaunch { uri, mainClass }
----                -> buildToolTarget (what the adapter turns into Gradle's own
----                   compile-and-run command) and classPaths (the breakpoint
----                   scope of the session). Refused when no build tool can
----                   launch the module.
----   launcher = "jvm" (default for explicit nvim-dap configurations)
----             -> intellij.java.resolveBuildCommand { uri }, run before the
----                launch when `dap.build_before_launch` (and `config.build`)
----                allow it — a JVM launch compiles nothing by itself.
----             -> intellij.java.resolveLaunch { uri, cwd, overrides }
----                -> javaExec, classPaths, modulePaths, moduleName,
----                   moduleContentPaths, cwd, vmArgs in one answer. The server
----                   merges the configuration's own values (`overrides`) itself.
----
---- Test launches (intellij-server.tests) arrive already resolved and pass
---- through untouched.
+--- Since server 1.0.86 the adapter resolves a launch itself, like the VS Code
+--- extension's (dap.ts): it builds the module with its build tool, takes the
+--- classpath, JDK, module path and working directory from the project model,
+--- and runs the program, streaming its output as DAP output events. All a
+--- configuration needs is `mainClass`; `file` disambiguates, `tool` picks how
+--- it runs ("java": a JVM process, "gradle"/"bazel": the build tool's own run;
+--- absent: the server's choice).
 ---
 --- Called by nvim-dap through the adapter's enrich_config hook. Not calling
---- on_config aborts the session, which is what we do on resolution errors.
+--- on_config aborts the session.
 ---@param config table
 ---@param on_config fun(config: table)
 function M.enrich_config(config, on_config)
   -- Attach configurations carry everything they need (a JDWP host and port).
-  if config.request ~= "launch" or config.jvmTest then
+  if config.request ~= "launch" then
     on_config(config)
-    return
-  end
-
-  local client = lsp_client()
-  if not client then
-    notify("LSP not running, cannot resolve the launch configuration")
     return
   end
   if not config.mainClass then
     notify('Launch configurations require "mainClass"')
     return
   end
-
-  local function fail(msg)
-    notify("Cannot start debugging: " .. msg)
+  if config.tool == nil and config.launcher then
+    config.tool = TOOL_OF_LAUNCHER[config.launcher]
   end
+  -- The adapter's name for the build tool's arguments, as dap.ts maps them.
+  config.toolArgs = config.toolArgs or config.gradleArgs
+  config.console = config.console or "integratedTerminal"
+  on_config(config)
+end
 
-  local function finish()
-    -- integratedTerminal: the adapter sends a runInTerminal reverse request,
-    -- which nvim-dap answers by opening a terminal buffer.
-    config.console = config.console or "integratedTerminal"
-    on_config(config)
-  end
+---@type table<integer, { chan: integer, buf: integer }> running session id -> its terminal
+local terminals = {}
+local run_win ---@type integer?
 
-  --- Gradle launch: the adapter runs Gradle, which compiles and runs the
-  --- module; the session is scoped to the module's classpath (LSP-1421).
-  local function apply_build_tool_launch(uri, response)
-    config.launcher = response.tool
-    config.buildToolTarget = {
-      uri = uri,
-      moduleName = response.moduleName,
-      projectPath = config.projectPath,
-      sourceSet = config.sourceSet,
-      toolArgs = config.gradleArgs,
-    }
-    config.classPaths = non_empty(response.scopeClassPaths)
-    finish()
-  end
-
-  local function resolve_build_tool(uri, on_done)
-    M.execute_command(client, "intellij.java.resolveBuildToolLaunch", { { uri = uri, mainClass = config.mainClass } }, on_done)
-  end
-
-  --- JVM launch: everything `java` needs, resolved in one request.
-  local function resolve_jvm(uri)
-    config.launcher = "jvm"
-    -- Absent keys only: the server rejects JSON null here, and an empty list
-    -- is not an override. With nothing to override the table must still go
-    -- out as `{}`, not `[]` (an empty Lua table encodes as an array).
-    local overrides = {
-      classPaths = non_empty(config.classPaths),
-      modulePaths = non_empty(config.modulePaths),
-      moduleName = config.moduleName,
-      javaExec = config.javaExec,
-      vmArgs = non_empty(config.vmArgs),
-    }
-    if next(overrides) == nil then
-      overrides = vim.empty_dict()
-    end
-    local request = { uri = uri, cwd = config.cwd, overrides = overrides }
-    M.execute_command(client, "intellij.java.resolveLaunch", { request }, function(err, paths)
-      if err then
-        fail("intellij.java.resolveLaunch failed: " .. err)
-        return
-      end
-      paths = type(paths) == "table" and paths or {}
-      config.classPaths = non_empty(paths.classpath)
-      -- A JPMS launch carries the module path and the owning module, so the
-      -- main class runs as `-m moduleName/mainClass` instead of from the
-      -- class path.
-      config.modulePaths = non_empty(paths.modulePath)
-      if paths.moduleName then
-        config.moduleName = paths.moduleName
-      end
-      -- Gradle compiles a module into several directories and only the one
-      -- with module-info.class is the module; the adapter patches the rest
-      -- back in with --patch-module once they exist on disk.
-      config.moduleContentPaths = non_empty(paths.moduleContentPaths)
-      -- The module's directory unless the config named one; without either the
-      -- program inherits the server's cwd.
-      if paths.workingDirectory then
-        config.cwd = paths.workingDirectory
-      end
-      -- Never absent: a launch with neither a configured nor a project JDK is
-      -- refused by the server.
-      if paths.javaExec then
-        config.javaExec = paths.javaExec
-      end
-      -- The configuration's own vmArgs, merged with the module's.
-      config.vmArgs = non_empty(paths.vmArgs) or config.vmArgs
-      finish()
-    end)
-  end
-
-  --- Compile the module first, then launch.
-  local function build_then_jvm(uri)
-    local wanted = (require("intellij-server").config.dap or {}).build_before_launch ~= false
-    if config.build == false or (config.build == nil and not wanted) then
-      resolve_jvm(uri)
-      return
-    end
-    M.build_module(client, uri, function(ok)
-      if ok then
-        resolve_jvm(uri)
-      else
-        fail("the build failed — see :IntellijServerBuildLog")
-      end
-    end)
-  end
-
-  local function resolve_from(uri)
-    local launcher = config.launcher or "jvm"
-    if launcher == "jvm" then
-      build_then_jvm(uri)
-    elseif BUILD_TOOL_LAUNCHERS[launcher] then
-      resolve_build_tool(uri, function(err, response)
-        if err then
-          fail("intellij.java.resolveBuildToolLaunch failed: " .. err)
-        elseif type(response) ~= "table" or response.tool == nil then
-          -- Named the wrong launcher for this module: say so instead of quietly
-          -- running it some other way.
-          fail(('no build tool can launch "%s"; use launcher = "jvm"'):format(config.mainClass))
-        elseif response.tool ~= launcher then
-          fail(('"%s" is launched by %s, not %s'):format(config.mainClass, response.tool, launcher))
-        else
-          apply_build_tool_launch(uri, response)
-        end
-      end)
-    elseif launcher == "auto" then
-      -- Prefer the build tool's own launch when one exists: it compiles as part
-      -- of running, so no build step and no build output. A failure to ask
-      -- falls back to a JVM launch, which resolves everything again and
-      -- reports properly.
-      resolve_build_tool(uri, function(err, response)
-        if not err and type(response) == "table" and BUILD_TOOL_LAUNCHERS[response.tool or ""] then
-          apply_build_tool_launch(uri, response)
-        else
-          build_then_jvm(uri)
-        end
-      end)
-    else
-      fail(('unknown launcher "%s" (expected "auto", "jvm" or "gradle")'):format(tostring(launcher)))
-    end
-  end
-
-  if config.file then
-    resolve_from(vim.uri_from_fname(vim.fn.fnamemodify(config.file, ":p")))
+--- Show the output of a session that is not a test run. The server runs the
+--- program itself, so a terminal console gets no runInTerminal request: like
+--- the VS Code extension's run terminal, its output goes into a terminal
+--- buffer, one per session, in a reused bottom split. Closing the window hides
+--- the buffer; a finished run's buffer is wiped when the next run replaces
+--- it. Other consoles append to the REPL as nvim-dap would. `telemetry` is
+--- what `console = "none"` turns the output into.
+---@param session table nvim-dap session
+---@param body table DAP output event body
+function M.show_output(session, body)
+  if body.category == "telemetry" or not body.output then
     return
   end
-
-  M.execute_command(client, "intellij.java.resolveClassDocument", { { fqn = config.mainClass } }, function(err, result)
-    local uri = type(result) == "table" and result.uri or nil
-    if err or not uri then
-      notify(("Cannot start debugging: no source file for %s%s"):format(config.mainClass, err and (": " .. err) or ""))
-      return
+  if not TERMINAL_CONSOLES[session.config.console] then
+    require("dap.repl").append(body.output, "$", { newline = false })
+    return
+  end
+  local terminal = terminals[session.id]
+  if not terminal then
+    local buf = vim.api.nvim_create_buf(true, true)
+    vim.bo[buf].bufhidden = "hide"
+    if run_win and vim.api.nvim_win_is_valid(run_win) then
+      local previous = vim.api.nvim_win_get_buf(run_win)
+      vim.api.nvim_win_set_buf(run_win, buf)
+      local running = vim.iter(vim.tbl_values(terminals)):any(function(t)
+        return t.buf == previous
+      end)
+      if not running and vim.api.nvim_buf_get_name(previous):find("^intellij://run/") then
+        vim.api.nvim_buf_delete(previous, { force = true })
+      end
+    else
+      local current = vim.api.nvim_get_current_win()
+      vim.cmd("botright 15split")
+      run_win = vim.api.nvim_get_current_win()
+      vim.api.nvim_win_set_buf(run_win, buf)
+      vim.api.nvim_set_current_win(current)
     end
-    resolve_from(uri)
-  end)
+    pcall(vim.api.nvim_buf_set_name, buf, ("intellij://run/%d/%s"):format(session.id, session.config.name))
+    terminal = { chan = vim.api.nvim_open_term(buf, {}), buf = buf }
+    terminals[session.id] = terminal
+  end
+  vim.api.nvim_chan_send(terminal.chan, (body.output:gsub("\r?\n", "\r\n")))
 end
 
 --- Split `:IntellijServerRun` input into the main class and the program
@@ -373,7 +214,7 @@ end
 
 --- Run or debug a main entry point. Handles the server's code lens command;
 --- also usable directly, e.g. from a keymap.
----@param args { mainClass: string, uri: string?, noDebug: boolean?, args: string[]?, vmArgs: string[]? }
+---@param args { mainClass: string, uri: string?, tool: string?, noDebug: boolean?, args: string[]?, vmArgs: string[]? }
 function M.run_main(args)
   if not has_dap then
     notify("nvim-dap is required to run main classes")
@@ -395,9 +236,8 @@ function M.run_main(args)
     file = args.uri and vim.uri_to_fname(args.uri) or nil,
     args = args.args,
     vmArgs = args.vmArgs,
-    -- Like the VS Code lens: through the build tool when it can run the
-    -- module, otherwise as a JVM process compiled beforehand.
-    launcher = "auto",
+    -- The lens names the build tool that runs the module ("gradle"), if any.
+    tool = args.tool,
   })
 end
 
@@ -458,57 +298,44 @@ function M.setup()
           -- nvim-dap's default ("No debugger adapter found for given adapter
           -- id"), so it must match JvmDebuggerAdapter.adapterId.
           id = "intellij_debugger",
-          -- Resolve classpath, cwd and JDK from the project model before the
-          -- session starts, like the VS Code extension does.
           enrich_config = M.enrich_config,
         })
       end
     end)
   end
+  -- intellij-server.tests replaces this to take its runs' output first.
+  dap.defaults.intellij.on_output = M.show_output
+  dap.listeners.after.event_terminated["intellij-server.dap"] = function(session)
+    terminals[session.id] = nil
+  end
 
-  -- Default configurations for Java and Kotlin.
-  --
-  -- Launch properties. The first block is ours, resolved before the adapter
-  -- sees the configuration (see enrich_config):
-  --   launcher    ("jvm"|"gradle"|"auto") how the program runs. "jvm"
-  --               (default) spawns `java` with the resolved classpath after
-  --               building the module; "gradle" hands the launch to Gradle,
-  --               which compiles as part of running; "auto" (the Run/Debug
-  --               lens) picks "gradle" when Gradle can run the module.
-  --   build       (boolean)   compile before a "jvm" launch. Default: the
-  --               `dap.build_before_launch` setup option (on).
-  --   projectPath (string)    Gradle project to run in (":app"), gradle only
-  --   sourceSet   (string)    Gradle source set ("main", "test"), gradle only
-  --   gradleArgs  (string[])  arguments for the Gradle invocation itself
-  --
-  -- Understood by the adapter:
+  -- Default configurations for Java and Kotlin. Launch properties, all
+  -- passed to the adapter:
   --   mainClass   (string)    fully qualified main class. Required.
   --   file        (string)    source file declaring it. Resolved from
   --               mainClass when omitted; set it to disambiguate when several
   --               files declare the same fully qualified name.
+  --   tool        ("java"|"gradle"|"bazel") how the program runs: "java" is a
+  --               JVM process after the build tool compiled the module,
+  --               "gradle"/"bazel" the build tool's own run. Default: the
+  --               server's choice (the build tool when it can run the module).
+  --   projectPath (string)    Gradle project (":app") or Bazel target
+  --   sourceSet   (string)    Gradle source set ("main", "test")
+  --   toolArgs    (string[])  arguments for the build tool invocation itself
+  --               (`gradleArgs` is accepted too)
   --   args        (string[])  program arguments
   --   vmArgs      (string[])  JVM arguments, e.g. { "-Xmx512m", "-ea" }
   --   env         (table)     extra environment variables for the process
-  --   cwd         (string)    working directory
-  --   javaExec    (string)    path to the java executable (default: project SDK)
-  --   classPaths  (string[])  runtime classpath override
-  --   modulePaths (string[])  JPMS module path override; if empty, resolved
-  --               from the project model when mainClass is in a named module
-  --   moduleName  (string)    JPMS module owning the main class, launched as
-  --               `-m moduleName/mainClass`; resolved automatically if empty
-  --   moduleContentPaths (string[]) server-resolved, not user-authored: output
-  --               roots the adapter patches into moduleName (--patch-module)
-  --   buildToolTarget (table) server-resolved for gradle launches: what the
-  --               adapter turns into Gradle's own compile-and-run command
+  --   cwd         (string)    working directory (default: the module's)
+  --   stepFilters (table)     { skipClasses = { "java.*" }, skipSynthetics,
+  --               skipConstructors, skipGetters, skipClassLoaders }
   --   noDebug     (boolean)   run without attaching the debugger
-  --   console     ("internalConsole"|"integratedTerminal"|"externalTerminal"|"none")
-  --               where to run the program. Default: "integratedTerminal" —
-  --               the adapter sends a DAP runInTerminal reverse request,
-  --               which nvim-dap answers by opening a terminal buffer. "none"
-  --               (test runs) delivers stdout as DAP output events instead.
+  --   console     ("integratedTerminal"|"externalTerminal"|"internalConsole"|"none")
+  --               where the output goes. Default: "integratedTerminal", a
+  --               terminal buffer in a bottom split (see show_output);
+  --               "internalConsole" the REPL; "none" nowhere (test runs).
   --
-  -- Everything except mainClass is resolved from the project model when left
-  -- out, so the defaults below are enough for most programs.
+  -- The server builds the module before every launch.
   local configs = {
     {
       type = "intellij",
@@ -517,9 +344,8 @@ function M.setup()
       mainClass = function()
         return vim.fn.input("Main class: ")
       end,
-      -- Run the program in a Neovim terminal buffer (nvim-dap handles the
-      -- runInTerminal request). Use "internalConsole" to keep output in the
-      -- REPL/console instead.
+      -- A JVM process; use "internalConsole" to keep the output in the REPL.
+      tool = "java",
       console = "integratedTerminal",
     },
     {
@@ -529,8 +355,8 @@ function M.setup()
       mainClass = function()
         return vim.fn.input("Main class: ")
       end,
-      -- Gradle compiles and runs the module; the session is scoped to it.
-      launcher = "gradle",
+      -- Gradle compiles and runs the module.
+      tool = "gradle",
       console = "integratedTerminal",
     },
     {

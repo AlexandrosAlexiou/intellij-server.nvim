@@ -29,10 +29,7 @@ local M = {}
 ---   which indents each lens to the identifier it belongs to instead of the code.
 ---   `tests = false` drops the Run Test / Debug Test lenses the plugin adds above tests.
 ---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
----@field dap { enabled?: boolean, build_before_launch?: boolean, build_args?: string[] }? nvim-dap integration. `build_args` are
----   appended to the build command the server resolves. `build_before_launch`
----   (default: on) compiles the module with its build tool before a JVM launch, like the VS Code
----   extension's pre-launch build task; a configuration can opt out with `build = false`.
+---@field dap { enabled?: boolean }? nvim-dap integration. The server builds the module before every launch.
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
 ---@field projects (IntellijProjectSpec[]|fun(root_dir: string): IntellijProjectSpec[])? Explicit project imports (initializationOptions.projects). Overrides marker-based auto-import.
 ---@field disable_rocksdb_wal boolean? Disable the RocksDB write-ahead log for the server's index storage.
@@ -111,7 +108,7 @@ M.defaults = {
   folding = { enabled = true },
   code_lens = { enabled = true, tests = true },
   navigation = { enabled = true },
-  dap = { enabled = true, build_before_launch = true },
+  dap = { enabled = true },
   libraries = { compact_packages = true, explorer = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
   connection = {

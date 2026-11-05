@@ -3,7 +3,7 @@ intellij-server.nvim &mdash; IntelliJ IDEA's LSP in Neovim
 
 [<img alt="github" src="https://img.shields.io/badge/github-AlexandrosAlexiou/intellij--server.nvim-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/AlexandrosAlexiou/intellij-server.nvim)
 [<img alt="neovim" src="https://img.shields.io/badge/neovim-0.12+-57A143?style=for-the-badge&labelColor=555555&logo=neovim" height="20">](https://neovim.io/)
-[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-263.7084.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
+[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-271.2085.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
 [<img alt="license" src="https://img.shields.io/github/license/AlexandrosAlexiou/intellij-server.nvim?style=for-the-badge" height="20">](LICENSE)
 
 This plugin runs the [JetBrains IntelliJ Language Server][announcement], the
