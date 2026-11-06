@@ -8,6 +8,11 @@ local M = {}
 ---   server binds the first JDK its own scan finds, which may not match the project.
 ---@field env table<string, string>? Extra environment for the import process.
 ---@field systemProperties table<string, string>? Extra system properties for the import process.
+---@field profiles string[]? Maven only: profiles to activate during the import.
+---@field downloadAdditionalArtifacts boolean? Download dependency sources and docs (server default: true).
+---@field offline boolean? Use only artifacts already downloaded (server default: false).
+---@field skipGenerateSources boolean? Maven only: skip the code generators the import otherwise runs
+---   into the project's target/ directories (server default: false).
 
 ---@class IntellijServerConfig
 ---@field server_path string? Path to the intellij-server binary. Auto-detected if nil.
@@ -29,10 +34,7 @@ local M = {}
 ---   which indents each lens to the identifier it belongs to instead of the code.
 ---   `tests = false` drops the Run Test / Debug Test lenses the plugin adds above tests.
 ---@field navigation { enabled?: boolean }? Open package definitions in oil.nvim and collapse duplicate locations (default: on).
----@field dap { enabled?: boolean, build_before_launch?: boolean, build_args?: string[] }? nvim-dap integration. `build_args` are
----   appended to the build command the server resolves. `build_before_launch`
----   (default: on) compiles the module with its build tool before a JVM launch, like the VS Code
----   extension's pre-launch build task; a configuration can opt out with `build = false`.
+---@field dap { enabled?: boolean }? nvim-dap integration. The server builds the module before every launch.
 ---@field build_log { enabled?: boolean, open_on_start?: boolean, open_on_failure?: boolean, notify?: boolean }? Streamed import/build output (intellij/importLog).
 ---@field projects (IntellijProjectSpec[]|fun(root_dir: string): IntellijProjectSpec[])? Explicit project imports (initializationOptions.projects). Overrides marker-based auto-import.
 ---@field disable_rocksdb_wal boolean? Disable the RocksDB write-ahead log for the server's index storage.
@@ -40,15 +42,26 @@ local M = {}
 ---   for folders more than one build system claims: `{ ["~/src/app"] = "gradle" }`. Keys are paths
 ---   or file:// URIs, values "gradle" | "maven" | "bazel" | "jps". Without it the server reports the
 ---   folder as blocked (intellij/workspaceImportStatus) and does not import it.
+---@field fork_from_workspace (string|fun(root_dir: string): string?)? Path of a workspace to copy the index from when this one has none
+---   yet, e.g. the main checkout of a git worktree (initializationOptions.fromWorkspace, the VS Code
+---   `intellij.forkFromWorkspace` setting). The index is re-anchored to this root, so it starts warm.
+---@field tests IntellijTestConfig? Settings of test runs (the VS Code `java.test.config` setting).
 ---@field default_sdk string? JDK home the server uses for symbol resolution when a project pins none
 ---   (initializationOptions.defaultSdk, the VS Code `intellij.jdkForSymbolResolution` setting).
 ---@field connection IntellijServerConnection? How the client talks to the server (default: stdio).
 ---@field libraries IntellijLibraryOpts? External Libraries tree (:IntellijServerLibraries).
 
+---@class IntellijTestConfig
+---@field vm_args string[]? JVM arguments of the test process.
+---@field env table<string, string>? Extra environment of the test process.
+---@field cwd string? Working directory of the test process (default: the module's).
+---@field tags string[]? JUnit Platform tag filter: a tag runs only tests carrying it, "!tag" excludes.
+
 ---@class IntellijServerConnection
----@field mode "stdio"|"socket"? "stdio" (default) spawns one server per project root, owned by this
----   Neovim instance. "socket" connects to a single shared server over TCP (`--socket --multi-client`)
----   that serves every project and every Neovim instance at once.
+---@field mode "socket"|"router"? "socket" (default) connects to a single shared server over TCP
+---   (`--socket --multi-client`) that serves every project and every Neovim instance at once.
+---   "router" (server 1.0.86+) runs the server's lsp-router on stdio, as the VS Code extension does:
+---   one server per project root, shared by every editor on that root and stopped once none is left.
 ---@field host string? Address of the shared server (default: "127.0.0.1"). A non-loopback host is
 ---   connect-only: the plugin will never spawn a server there.
 ---@field port integer? TCP port of the shared server (default: 9999, the server's own default).
@@ -111,11 +124,11 @@ M.defaults = {
   folding = { enabled = true },
   code_lens = { enabled = true, tests = true },
   navigation = { enabled = true },
-  dap = { enabled = true, build_before_launch = true },
+  dap = { enabled = true },
   libraries = { compact_packages = true, explorer = true },
   build_log = { enabled = true, open_on_start = false, open_on_failure = true, notify = true },
   connection = {
-    mode = "stdio",
+    mode = "socket",
     host = "127.0.0.1",
     port = 9999,
     autostart_server = true,
@@ -436,6 +449,10 @@ function M.start(bufnr)
         ["system-properties"] = project.systemProperties or project["system-properties"],
         ["java-home"] = java_home,
         ["project-path"] = project.projectPath or project["project-path"],
+        profiles = project.profiles,
+        downloadAdditionalArtifacts = project.downloadAdditionalArtifacts,
+        offline = project.offline,
+        skipGenerateSources = project.skipGenerateSources,
       }
     end, projects)
   end
@@ -455,6 +472,15 @@ function M.start(bufnr)
       end
       init_options.buildTools[uri] = tool
     end
+  end
+
+  local fork = M.config.fork_from_workspace
+  if type(fork) == "function" then
+    fork = fork(root_dir)
+  end
+  if type(fork) == "string" and fork ~= "" then
+    -- The server matches it against the source workspace's root URI.
+    init_options.fromWorkspace = vim.uri_from_fname((vim.fn.fnamemodify(vim.fn.expand(fork), ":p"):gsub("/$", "")))
   end
 
   if type(M.config.default_sdk) == "string" and M.config.default_sdk ~= "" then
@@ -493,6 +519,7 @@ function M.start(bufnr)
     handlers["intellij/importLog"] = function(_, params, ctx)
       build_log.handler(_, params, ctx)
     end
+    handlers["intellij/buildOutput"] = build_log.output_handler
   end
 
   local lsp_config = {
@@ -537,6 +564,16 @@ function M.start(bufnr)
       return client.name == config.name and client.config.root_dir == config.root_dir
     end,
   }
+
+  -- The router starts and shares the workspace's server itself.
+  if connection.opts().mode == "router" then
+    lsp_config.cmd, lsp_config.cmd_env = server.router_cmd(M.config)
+    report_stale_caches()
+    if lsp_config.cmd then
+      vim.lsp.start(lsp_config, start_opts)
+    end
+    return
+  end
 
   connection.ensure_server(function(ok)
     if not ok or not vim.api.nvim_buf_is_valid(bufnr) then

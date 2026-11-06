@@ -3,7 +3,7 @@ intellij-server.nvim &mdash; IntelliJ IDEA's LSP in Neovim
 
 [<img alt="github" src="https://img.shields.io/badge/github-AlexandrosAlexiou/intellij--server.nvim-8da0cb?style=for-the-badge&labelColor=555555&logo=github" height="20">](https://github.com/AlexandrosAlexiou/intellij-server.nvim)
 [<img alt="neovim" src="https://img.shields.io/badge/neovim-0.12+-57A143?style=for-the-badge&labelColor=555555&logo=neovim" height="20">](https://neovim.io/)
-[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-263.7084.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
+[<img alt="intellij-server" src="https://img.shields.io/badge/intellij--server-271.2085.0-FE315D?style=for-the-badge&labelColor=555555&logo=intellijidea" height="20">](https://blog.jetbrains.com/idea/2026/08/intellij-idea-goes-lsp)
 [<img alt="license" src="https://img.shields.io/github/license/AlexandrosAlexiou/intellij-server.nvim?style=for-the-badge" height="20">](LICENSE)
 
 This plugin runs the [JetBrains IntelliJ Language Server][announcement], the
@@ -38,7 +38,7 @@ and can share one server process across every project and Neovim instance.
 | | |
 |---|---|
 | [Installation](docs/installation.md) | Requirements, plugin managers, how the server is downloaded and run, licensing |
-| [Configuration](docs/configuration.md) | Every option with defaults, project root, shared server (socket mode), project JDK, inlay hints |
+| [Configuration](docs/configuration.md) | Every option with defaults, project root, shared server (socket mode), per-project servers (router mode), project JDK, inlay hints |
 | [Features](docs/features.md) | Commands, what works, and the behaviours the plugin fixes up |
 | [Debugging and running](docs/debugging.md) | Code lenses, `:IntellijServerRun`, tests, attach, breakpoints |
 | [Code style](docs/code-style.md) | `.editorconfig` properties: import collapsing, import order, every `ij_java_*` / `ij_kotlin_*` setting |
@@ -75,8 +75,9 @@ server expects from an IDE:
 - **Formatting and file templates** with IntelliJ's code-style engine and its
   New File templates.
 
-- **One server for everything.** In socket mode a single shared process serves
-  every project and Neovim instance instead of one IntelliJ per project.
+- **One server for everything.** By default a single shared process serves
+  every project and Neovim instance instead of one IntelliJ per project. Router
+  mode instead runs one server per project, shared by every Neovim on it.
 
 <br>
 
@@ -87,8 +88,9 @@ require("intellij-server").setup({
   -- Raise the server's heap for large projects (default: the JVM's own)
   jvm_args = { "-Xmx8g" },
 
-  -- One shared server for all projects and Neovim instances
-  connection = { mode = "socket" },
+  -- One server per project, shared by the Neovims on it (default: "socket",
+  -- one shared server for every project)
+  -- connection = { mode = "router" },
 
   on_attach = function(client, bufnr)
     vim.keymap.set("n", "gd", vim.lsp.buf.definition, { buffer = bufnr })

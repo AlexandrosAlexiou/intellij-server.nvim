@@ -62,6 +62,23 @@ vim.api.nvim_create_user_command("IntellijServerBuildLog", function()
   require("intellij-server.build-log").open()
 end, { desc = "Open the streamed IntelliJ import/build log" })
 
+vim.api.nvim_create_user_command("IntellijServerBuild", function(cmd_opts)
+  local client = vim.lsp.get_clients({ name = "intellij-server", bufnr = 0 })[1]
+    or vim.lsp.get_clients({ name = "intellij-server" })[1]
+  if not client then
+    vim.notify("[intellij-server] not running", vim.log.levels.WARN)
+    return
+  end
+  local uri = cmd_opts.args ~= "workspace" and vim.api.nvim_buf_get_name(0) ~= "" and vim.uri_from_bufnr(0) or nil
+  require("intellij-server.build-log").build(client, uri)
+end, {
+  nargs = "?",
+  complete = function()
+    return { "workspace" }
+  end,
+  desc = "Build the current file's module on the server, or every module with `workspace`",
+})
+
 vim.api.nvim_create_user_command("IntellijServerLogs", function()
   require("intellij-server.process").show_logs()
 end, { desc = "Open the IntelliJ server log and Neovim's LSP log" })
@@ -122,5 +139,5 @@ end, {
       return vim.startswith(name, arg_lead)
     end, names)
   end,
-  desc = "Show or activate the server license (status, login, logout, subscription, trial, code, server)",
+  desc = "Show or activate the server license (status, login, logout, subscription, trial, code, server, authorize)",
 })

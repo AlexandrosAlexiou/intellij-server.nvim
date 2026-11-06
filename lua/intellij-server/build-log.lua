@@ -63,94 +63,57 @@ function M.open()
   vim.api.nvim_win_set_cursor(0, { vim.api.nvim_buf_line_count(buf), 0 })
 end
 
---- Clear the log buffer.
-function M.clear()
-  if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
-    vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
-  end
-end
+local next_build = 0
 
---- Run a build the server resolved (`intellij.java.resolveBuildCommand`) and
---- stream its output into the log — what the VS Code extension's
---- "intellij: build" pre-launch task does before a JVM launch. Runs
---- asynchronously; `on_done` gets whether the command exited with 0.
----@param build { tool?: string, command: string[], cwd?: string }
----@param on_done fun(ok: boolean)
-function M.run(build, on_done)
-  local tool = build.tool or "Build"
-  local buf = get_buf()
-  if vim.api.nvim_buf_get_lines(buf, 0, 1, false)[1] ~= "" then
-    M.append({ "" })
-  end
-  M.append({ ("── %s build started: %s ──"):format(tool, table.concat(build.command, " ")) })
-  if build.cwd then
-    M.append({ "in " .. build.cwd })
-  end
+--- Build on the server (`intellij.build`, server 1.0.86+), the VS Code
+--- extension's `intellij: build` task: the module of `uri`, or every module
+--- without one. The server runs the build tool and streams its lines as
+--- `intellij/buildOutput` (see output_handler); the answer carries the exit
+--- code, or none and the reason nothing could build.
+---@param client vim.lsp.Client
+---@param uri string?
+function M.build(client, uri)
+  next_build = next_build + 1
+  local target = uri and vim.fn.fnamemodify(vim.uri_to_fname(uri), ":~:.") or "workspace"
+  M.append({ "", ("── build started: %s ──"):format(target) })
   if M.opts.notify then
-    vim.notify(("[intellij-server] %s build started — :IntellijServerBuildLog to follow"):format(tool))
+    vim.notify(("[intellij-server] Build of %s started — :IntellijServerBuildLog to follow"):format(target))
   end
   if M.opts.open_on_start then
     M.open()
   end
-
-  -- Output arrives in chunks that need not end on a line boundary: keep the
-  -- partial last line per stream until the next chunk (or exit) completes it.
-  local pending = { stdout = "", stderr = "" }
-  local function on_output(stream)
-    return function(_, data)
-      if not data then
-        return
-      end
-      vim.schedule(function()
-        local text = pending[stream] .. data:gsub("\r\n", "\n"):gsub("\r", "\n")
-        local lines = vim.split(text, "\n", { plain = true })
-        pending[stream] = table.remove(lines)
-        if #lines > 0 then
-          M.append(lines)
-        end
-      end)
+  -- checkoutTools: a module no build tool imported may be built by a tool
+  -- present in the checkout, as the VS Code task allows.
+  local args = { uri = uri, buildId = "nvim-" .. next_build, checkoutTools = true }
+  client:request("workspace/executeCommand", { command = "intellij.build", arguments = { args } }, function(err, result)
+    result = type(result) == "table" and result or {}
+    local failed, summary
+    if err then
+      failed, summary = true, "could not start: " .. (err.message or vim.inspect(err))
+    elseif type(result.exitCode) ~= "number" then
+      summary = result.reason or "nothing to build"
+    else
+      failed = result.exitCode ~= 0
+      summary = failed and ("failed (exit code %d)"):format(result.exitCode) or "finished"
     end
-  end
-
-  local function flush()
-    for _, stream in ipairs({ "stdout", "stderr" }) do
-      if pending[stream] ~= "" then
-        M.append({ pending[stream] })
-        pending[stream] = ""
-      end
+    if type(result.unsupported) == "table" and #result.unsupported > 0 then
+      summary = summary .. "; not built: " .. table.concat(result.unsupported, ", ")
     end
-  end
-
-  local ok, err = pcall(vim.system, build.command, {
-    cwd = build.cwd,
-    text = true,
-    stdout = on_output("stdout"),
-    stderr = on_output("stderr"),
-  }, function(result)
-    vim.schedule(function()
-      flush()
-      if result.code == 0 then
-        M.append({ ("── %s build finished ──"):format(tool) })
-        if M.opts.notify then
-          vim.notify(("[intellij-server] %s build finished"):format(tool))
-        end
-        on_done(true)
-      else
-        M.append({ ("── %s build failed (exit code %d) ──"):format(tool, result.code) })
-        if M.opts.notify then
-          vim.notify(("[intellij-server] %s build failed — see :IntellijServerBuildLog"):format(tool), vim.log.levels.ERROR)
-        end
-        if M.opts.open_on_failure then
-          M.open()
-        end
-        on_done(false)
-      end
-    end)
+    M.append({ ("── build of %s %s ──"):format(target, summary) })
+    if M.opts.notify then
+      vim.notify(("[intellij-server] Build of %s %s"):format(target, summary), failed and vim.log.levels.ERROR or nil)
+    end
+    if failed and M.opts.open_on_failure then
+      M.open()
+    end
   end)
-  if not ok then
-    M.append({ ("── could not run %s: %s ──"):format(build.command[1], tostring(err)) })
-    vim.notify(("[intellij-server] could not run %s: %s"):format(build.command[1], tostring(err)), vim.log.levels.ERROR)
-    on_done(false)
+end
+
+--- LSP handler for `intellij/buildOutput`: one line of a build's output.
+---@param params { buildId: string, category: string, line: string }
+function M.output_handler(_, params, _)
+  if params and type(params.line) == "string" then
+    M.append(vim.split(params.line, "\n", { plain = true }))
   end
 end
 

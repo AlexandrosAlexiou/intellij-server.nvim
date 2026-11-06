@@ -112,15 +112,7 @@ require("intellij-server").setup({
   -- the server's Run/Debug code lenses above main methods
   -- (initializationOptions.runMainCodeLens).
   dap = {
-    enabled = true,  -- requires nvim-dap
-    -- Compile the module with its build tool before a JVM launch or a test run
-    -- (the VS Code extension's pre-launch build task). Output goes to
-    -- :IntellijServerBuildLog.
-    build_before_launch = true,
-    -- Extra arguments appended to the server's build command, e.g. for a Maven
-    -- build cache that restores modules without their test classes:
-    -- build_args = { "-Dmaven.build.cache.enabled=false" },
-    build_args = nil,
+    enabled = true,  -- requires nvim-dap; the server builds the module before every launch
   },
 
   -- Explicit project imports (initializationOptions.projects), equivalent to
@@ -130,7 +122,11 @@ require("intellij-server").setup({
   -- Can also be a function(root_dir) returning the list.
   -- Optional fields per project: javaHome pins the JDK used as the project SDK
   -- for the import (see "Project JDK" below); env and systemProperties pass
-  -- extra environment/properties to the import process.
+  -- extra environment/properties to the import process. Maven: profiles
+  -- activates build profiles; skipGenerateSources (server 1.0.86+) leaves out
+  -- the code generators the import otherwise runs into target/. Any type:
+  -- offline imports from already downloaded artifacts only, and
+  -- downloadAdditionalArtifacts = false skips dependency sources and docs.
   -- projects = {
   --   { type = "maven", path = "/path/to/project",
   --     javaHome = "/Library/Java/JavaVirtualMachines/zulu-25.jdk/Contents/Home" },
@@ -145,6 +141,26 @@ require("intellij-server").setup({
   -- URIs, values "gradle" | "maven" | "bazel" | "jps".
   -- build_tools = { ["~/src/app"] = "gradle" },
   build_tools = nil,
+
+  -- Workspace to copy the index from while this one has none yet, e.g. the
+  -- main checkout of a git worktree (initializationOptions.fromWorkspace;
+  -- VS Code: intellij.forkFromWorkspace; server 1.0.86+). The copy is
+  -- re-anchored to this root, so a new worktree starts warm instead of
+  -- reindexing. A function(root_dir) decides per project, e.g. the main
+  -- checkout of a git worktree:
+  -- fork_from_workspace = function(root)
+  --   local common = vim.fn.systemlist({ "git", "-C", root, "rev-parse", "--path-format=absolute", "--git-common-dir" })[1]
+  --   local main = common and vim.fs.dirname(common)
+  --   return main ~= root and main or nil
+  -- end,
+  fork_from_workspace = nil,
+
+  -- Settings of test runs (VS Code: java.test.config). vm_args and env go to
+  -- the test process, cwd replaces the module's directory, and tags filters
+  -- JUnit Platform tests: "fast" runs only tests tagged fast, "!slow" skips
+  -- the slow ones.
+  -- tests = { vm_args = { "-Xmx1g" }, env = { SPRING_PROFILES_ACTIVE = "test" }, tags = { "!slow" } },
+  tests = nil,
 
   -- JDK home used for symbol resolution when a project pins none
   -- (initializationOptions.defaultSdk; VS Code: intellij.jdkForSymbolResolution).
@@ -164,12 +180,13 @@ require("intellij-server").setup({
     notify = true,           -- vim.notify on start/success/failure
   },
 
-  -- How the client talks to the server. See "Shared server (socket mode)" below.
+  -- How the client talks to the server. See "Shared server (socket mode)"
+  -- and "Per-project servers (router mode)" below.
   connection = {
-    -- "stdio" (default): one server process per project root, owned by this
-    -- Neovim instance. "socket": connect to a single shared server over TCP
-    -- that serves every project and every Neovim instance at once.
-    mode = "stdio",
+    -- "socket" (default): one shared server over TCP serves every project and
+    -- every Neovim instance. "router": the server's lsp-router starts one
+    -- server per project root, shared by the editors on that root.
+    mode = "socket",
     host = "127.0.0.1",         -- where the shared server listens
     port = 9999,                -- the server's own default port
     autostart_server = true,    -- spawn the shared server if nothing is listening
@@ -201,17 +218,11 @@ nearest `root_markers` directory, then the file's own directory.
 
 ## Shared server (socket mode)
 
-The server is a headless IntelliJ IDEA and weighs accordingly. In the default
-stdio mode every Neovim instance (and every project root within one) spawns its
-own copy. Socket mode runs **one** server process (`--socket --multi-client`)
-that serves every project and every Neovim instance at once — each project root
-still gets its own LSP connection, but they all land in the same JVM:
-
-```lua
-require("intellij-server").setup({
-  connection = { mode = "socket" },  -- host/port default to 127.0.0.1:9999
-})
-```
+The server is a headless IntelliJ IDEA and weighs accordingly. Socket mode, the
+default, runs **one** server process (`--socket --multi-client`) that serves
+every project and every Neovim instance at once — each project root still gets
+its own LSP connection, but they all land in the same JVM. host and port
+default to 127.0.0.1:9999.
 
 **Startup.** When nothing is listening on `host:port`, the first Neovim to need
 the server spawns it (detached, so it is not tied to that Neovim's lifetime)
@@ -228,8 +239,8 @@ winner. Set `autostart_server = false` to manage the server yourself:
   --socket=127.0.0.1:9999 --multi-client --eula <hash>
 ```
 
-When the plugin spawns the server it applies the same environment as stdio mode
-(`java_home`, `jvm_args`, the persistent data/log directories). A manually
+When the plugin spawns the server it applies `java_home`, `jvm_args` and the
+persistent data/log directories. A manually
 started server uses whatever environment you give it, so `:IntellijServerLogs`
 only finds the server log if you point `-Didea.log.path` at
 `stdpath("data")/intellij-server/data/log` yourself.
@@ -282,6 +293,27 @@ nothing resurrects the server behind your back.
 `initializationOptions` travel with each LSP connection and keep working
 per-project. Options that configure the server *process* (`jvm_args`,
 `java_home`, `server_path`) only take effect for the instance that spawns it.
+
+## Per-project servers (router mode)
+
+```lua
+require("intellij-server").setup({ connection = { mode = "router" } })
+```
+
+Router mode (server 1.0.86+) launches what the VS Code extension launches: the
+`lsp-router` shipped next to the server binary, talking LSP over stdio. The
+router connects to the server of the project root, and starts one when none
+serves it yet. Every Neovim on the same root shares that server, so two
+editors on one project both work (socket mode cannot do this: a second
+connection to the same root fails on the index lock). Each project gets its
+own JVM, which the server stops 10 seconds after its last editor leaves.
+The plugin keeps no pidfile, lease or port for it.
+
+Each such server keeps its config, system directory and log under the cache
+root (`~/Library/Caches/JetBrains/IntelliJServer/instances/<id>/` on macOS);
+`:IntellijServerLogs` opens the log of the current buffer's server. `java_home`
+and `jvm_args` apply as in socket mode. `:IntellijServerClean` waits up to 15
+seconds for the server to stop before it deletes the index.
 
 ## Project JDK
 

@@ -226,26 +226,28 @@ local function caches_root()
   return os.getenv("XDG_CACHE_HOME") or ((os.getenv("HOME") or "") .. "/.cache")
 end
 
---- The server's `--system-path`: per-workspace indexes and the workspace
---- model, under workspaces/<hash>. One directory per server version, as the
---- VS Code extension does since 1.0, so a new version never opens caches an
---- older one wrote. Without the option the server uses the unversioned
---- JetBrains/IntelliJServer itself.
+--- Where the server keeps per-workspace indexes and the workspace model,
+--- under workspaces/<hash>. Server 1.0.86 always uses this unversioned
+--- directory (it versions the index format itself) and ignores
+--- `--system-path` for it; the plugin passed a per-version path before.
 ---@return string
 function M.system_path()
-  return caches_root() .. "/JetBrains/IntelliJServer/" .. require("intellij-server.version").version
+  return caches_root() .. "/JetBrains/IntelliJServer"
 end
 
---- Cache directories of other server versions: the unversioned workspaces/
---- of servers started before the plugin passed `--system-path`, and the
---- system paths of other versions. Never removed automatically — another
---- editor may still run an older plugin.
+--- What servers from 1.0.86 on use under system_path(): the indexes, and the
+--- config/system directories lsp-router gives the servers it starts.
+local LIVE_CACHE_DIRS = { workspaces = true, instances = true }
+
+--- Cache directories older server versions left behind: the per-version
+--- system paths (IntelliJServer/1.0.27, …) the plugin passed before 1.0.86.
+--- Never removed automatically — another editor may still run an older
+--- plugin.
 ---@return string[]
 function M.stale_caches()
-  local current = M.system_path()
   local stale = {}
-  for _, dir in ipairs(vim.fn.glob(vim.fn.fnamemodify(current, ":h") .. "/*", true, true)) do
-    if dir ~= current and vim.fn.isdirectory(dir) == 1 then
+  for _, dir in ipairs(vim.fn.glob(M.system_path() .. "/*", true, true)) do
+    if not LIVE_CACHE_DIRS[vim.fn.fnamemodify(dir, ":t")] and vim.fn.isdirectory(dir) == 1 then
       table.insert(stale, dir)
     end
   end
@@ -255,7 +257,10 @@ end
 --- Open the server log (see -Didea.log.path in server.build_env) alongside
 --- Neovim's LSP RPC log, both scrolled to the end.
 function M.show_logs()
-  local server_log = M.data_dir() .. "/log/intellij-server.log"
+  -- A router-started server logs into its own directory, and says where.
+  local client = vim.lsp.get_clients({ name = "intellij-server", bufnr = 0 })[1]
+  local server_log = client and vim.tbl_get(client.server_capabilities or {}, "experimental", "logFile")
+    or M.data_dir() .. "/log/intellij-server.log"
   if vim.fn.filereadable(server_log) == 1 then
     vim.cmd("split | edit " .. vim.fn.fnameescape(server_log) .. " | normal! G")
   else
@@ -266,29 +271,21 @@ function M.show_logs()
   vim.cmd("vsplit | edit " .. vim.fn.fnameescape(vim.lsp.log.get_filename()) .. " | normal! G")
 end
 
---- Paths removed by :IntellijServerClean for one project root.
---- The server keeps per-workspace state (workspace-model.cache with the
---- imported modules and SDK bindings, plus the workspace index) under
---- <system path>/workspaces/<hash>. The hash is opaque, but each
---- workspace-model.cache embeds the project's paths, so the dirs belonging to
---- a root are found by content. Shared stores (the data dir, the analyzer
---- RocksDB cache) hold state for every project and are left alone.
----@param root_dir string
+--- Paths removed by :IntellijServerClean for one client: workspaces/<hash>
+--- under system_path(), the parent of the index directory the server reports
+--- (capabilities.experimental.indexDir). Server 1.0.86 keeps no
+--- workspace-model.cache there to match a root by content any more. The
+--- reported path is checked to lie inside workspaces/ since it gets deleted.
+--- Shared stores (the data dir, the analyzer RocksDB cache) hold state for
+--- every project and are left alone.
+---@param index_dir string?
 ---@return string[]
-function M.get_data_paths(root_dir)
-  local paths = {}
-  for _, dir in ipairs(vim.fn.glob(M.system_path() .. "/workspaces/*", true, true)) do
-    local cache = io.open(dir .. "/index/intellij-server/workspace-model.cache", "rb")
-    if cache then
-      local content = cache:read("*a") or ""
-      cache:close()
-      -- Trailing slash so /a/foo cannot match a workspace of /a/foo-bar.
-      if content:find(root_dir:gsub("/$", "") .. "/", 1, true) then
-        table.insert(paths, dir)
-      end
-    end
+function M.get_data_paths(index_dir)
+  local dir = type(index_dir) == "string" and vim.fs.normalize(index_dir):match("^(.*/workspaces/%w+)/index/")
+  if dir and dir:sub(1, #M.system_path() + 12) == M.system_path() .. "/workspaces/" then
+    return { dir }
   end
-  return paths
+  return {}
 end
 
 --- Does any process still hold files under one of `paths` open? Async and
@@ -415,6 +412,7 @@ function M.clean_and_restart()
   })[1]
 
   local root_dir = client and client.config.root_dir
+  local index_dir = client and vim.tbl_get(client.server_capabilities or {}, "experimental", "indexDir")
   if not root_dir then
     vim.notify("[intellij-server] No running client to determine the project root.", vim.log.levels.WARN)
     return
@@ -468,7 +466,7 @@ function M.clean_and_restart()
     100,
     3000,
     function()
-      local paths = M.get_data_paths(root_dir)
+      local paths = M.get_data_paths(index_dir)
 
       -- Once the client has exited, wait for any remaining cache handles
       -- to be released before deleting the workspace data.
@@ -479,7 +477,8 @@ function M.clean_and_restart()
           end)
         end,
         250,
-        5000,
+        -- A router-started server stops 10 s after its last editor leaves.
+        require("intellij-server.connection").opts().mode == "router" and 15000 or 5000,
         function(free)
           if not free then
             vim.notify(

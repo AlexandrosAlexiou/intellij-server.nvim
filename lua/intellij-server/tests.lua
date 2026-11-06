@@ -1,16 +1,17 @@
---- Running and debugging tests through the server's test commands (server
---- 0.0.13+), the way the VS Code extension's Test Explorer does:
+--- Running and debugging Java and Kotlin tests through the server's test
+--- commands, the way the VS Code extension's Test Explorer does:
 ---
 ---   intellij.jvm.discoverTestsInFile { uri }  -> classes and methods of a file
 ---   intellij.jvm.discoverTestModules          -> module names
 ---   intellij.jvm.discoverTestsInModule name   -> classes of a module
----   intellij.jvm.resolveTestLaunch { testIds, uniqueIds }
----     -> { mainClass, args, runtimeClasspath }[]: a JVM launch per test
----        framework involved, running IntelliJ's own JUnit starter.
+---   intellij.jvm.resolveTestLaunch { testIds, uniqueIds, tags }
+---     -> { mainClass, args, runtimeClasspath, runtimeModulePath, file }[]:
+---        a JVM launch per test framework involved, running IntelliJ's own
+---        JUnit starter.
 ---
---- A launch runs through nvim-dap like a main class (intellij-server.dap), on
---- the project's runtime classpath (intellij.java.resolveLaunch) behind the
---- runner's jars, after the module is built. The runner reports progress as
+--- A launch runs through nvim-dap like a main class (intellij-server.dap):
+--- the adapter builds the module of `file` and runs the starter on the
+--- module's test runtime plus the runner's jars. The runner reports progress as
 --- TeamCity service messages on stdout — `##teamcity[testFailed name='…' …]`
 --- — which arrive as DAP output events and become the results: a summary
 --- notification, a diagnostic on every failed test, the rest of the output in
@@ -21,7 +22,7 @@ local has_dap, dap = pcall(require, "dap")
 
 ---@class IntellijTestItem
 ---@field id string "demo.CalcTest" or "demo.CalcTest#adds"
----@field kind "CLASS"|"METHOD"
+---@field kind "SUITE"|"TEST"
 ---@field displayName string
 ---@field uri string
 ---@field range lsp.Range The name identifier.
@@ -88,7 +89,7 @@ end
 ---@return IntellijTestItem?
 local function at_cursor(items, line)
   local best
-  for _, kind in ipairs({ "METHOD", "CLASS" }) do
+  for _, kind in ipairs({ "TEST", "SUITE" }) do
     for _, item in ipairs(items) do
       if item.kind == kind and item.range.start.line <= line and (not best or item.range.start.line > best.range.start.line) then
         best = item
@@ -104,7 +105,7 @@ end
 ---@return IntellijTestItem[]
 local function top_level_classes(items)
   return vim.tbl_filter(function(item)
-    return item.kind == "CLASS" and not item.parentId
+    return item.kind == "SUITE" and not item.parentId
   end, items)
 end
 
@@ -158,7 +159,6 @@ end
 ---@field failures table<string, table> item id -> failure attributes
 ---@field counts { started: integer, failed: integer, skipped: integer }
 ---@field pending string partial last output line
----@field tail string[] last plain output lines, for a run that reports nothing
 ---@field launches table[] remaining DAP configurations
 ---@field exit_code integer?
 ---@field started integer
@@ -237,10 +237,6 @@ local function feed(run, text)
       on_message(run, name, attributes)
     else
       table.insert(plain, line)
-      table.insert(run.tail, line)
-      if #run.tail > 20 then
-        table.remove(run.tail, 1)
-      end
     end
   end
   if #plain > 0 then
@@ -371,8 +367,8 @@ local function hook_dap()
     local run = run_of(session)
     if run then
       feed(run, body.output or "")
-    elseif body.category ~= "telemetry" then
-      require("dap.repl").append(body.output, "$", { newline = false })
+    else
+      require("intellij-server.dap").show_output(session, body)
     end
   end
   dap.listeners.after.event_exited["intellij-server.tests"] = function(session, body)
@@ -406,7 +402,6 @@ function M.run_items(items, opts)
     notify("intellij-server is not running")
     return
   end
-  local ij_dap = require("intellij-server.dap")
   local uri = items[1].uri
 
   next_run_id = next_run_id + 1
@@ -421,7 +416,6 @@ function M.run_items(items, opts)
     failures = {},
     counts = { started = 0, failed = 0, skipped = 0 },
     pending = "",
-    tail = {},
     launches = {},
     started = vim.uv.hrtime(),
   }
@@ -434,58 +428,43 @@ function M.run_items(items, opts)
   local build_log = require("intellij-server.build-log")
   build_log.append({ "", ("── %s: %s ──"):format(opts.debug and "debugging" or "running", run.label) })
 
-  -- Like a JVM launch, the module is compiled first unless setup() says not to.
-  local function build(on_done)
-    if (require("intellij-server").config.dap or {}).build_before_launch == false then
-      on_done(true)
-    else
-      ij_dap.build_module(client, uri, on_done)
-    end
-  end
-
-  build(function(ok)
-    if not ok then
-      notify(("%s: the build failed — see :IntellijServerBuildLog"):format(run.label))
+  local test_ids = vim.tbl_map(function(item)
+    return item.id
+  end, items)
+  local config = require("intellij-server").config.tests or {}
+  local request = { testIds = test_ids, uniqueIds = {}, tags = config.tags or {} }
+  execute(client, "intellij.jvm.resolveTestLaunch", { request }, function(err, launches)
+    if err or type(launches) ~= "table" or #launches == 0 then
+      notify(("%s: intellij.jvm.resolveTestLaunch failed: %s"):format(run.label, err or "no way to run these tests"))
       return
     end
-    execute(client, "intellij.java.resolveLaunch", { { uri = uri, overrides = vim.empty_dict() } }, function(err, paths)
-      if err then
-        notify(("%s: intellij.java.resolveLaunch failed: %s"):format(run.label, err))
-        return
-      end
-      local test_ids = vim.tbl_map(function(item)
-        return item.id
-      end, items)
-      execute(client, "intellij.jvm.resolveTestLaunch", { { testIds = test_ids, uniqueIds = {} } }, function(err2, launches)
-        if err2 or type(launches) ~= "table" or #launches == 0 then
-          notify(("%s: intellij.jvm.resolveTestLaunch failed: %s"):format(run.label, err2 or "no way to run these tests"))
-          return
-        end
-        for _, launch in ipairs(launches) do
-          local class_paths = vim.list_extend(vim.list_extend({}, launch.runtimeClasspath or {}), paths.classpath or {})
-          table.insert(run.launches, {
-            type = "intellij",
-            request = "launch",
-            name = run.label,
-            mainClass = launch.mainClass,
-            args = launch.args,
-            file = vim.uri_to_fname(uri),
-            classPaths = class_paths,
-            javaExec = paths.javaExec,
-            cwd = paths.workingDirectory,
-            vmArgs = paths.vmArgs,
-            noDebug = not opts.debug,
-            -- Output comes back as DAP output events, not a terminal.
-            console = "none",
-            -- Marks the session as this run's; also tells the adapter's
-            -- enrich_config the configuration is complete.
-            jvmTest = run.id,
-          })
-        end
-        runs[run.id] = run
-        launch_next(run)
-      end)
-    end)
+    for _, launch in ipairs(launches) do
+      table.insert(run.launches, {
+        type = "intellij",
+        request = "launch",
+        name = run.label,
+        mainClass = launch.mainClass,
+        args = launch.args,
+        -- The adapter builds the module owning this file and runs on its
+        -- test runtime, with the runner's jars added.
+        file = type(launch.file) == "string" and launch.file or vim.uri_to_fname(uri),
+        tool = "java",
+        additionalClassPaths = launch.runtimeClasspath,
+        -- Left out when empty: an empty Lua table goes out as a JSON object.
+        additionalModulePaths = not vim.tbl_isempty(launch.runtimeModulePath or {}) and launch.runtimeModulePath or nil,
+        vmArgs = config.vm_args,
+        env = config.env,
+        cwd = config.cwd and vim.fn.fnamemodify(vim.fn.expand(config.cwd), ":p") or nil,
+        noDebug = not opts.debug,
+        -- The output comes back as `telemetry` output events: the build's,
+        -- then the runner's service messages.
+        console = "none",
+        -- Marks the session as this run's.
+        jvmTest = run.id,
+      })
+    end
+    runs[run.id] = run
+    launch_next(run)
   end)
 end
 

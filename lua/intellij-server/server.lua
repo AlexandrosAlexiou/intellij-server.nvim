@@ -53,23 +53,20 @@ function M.find_binary()
   return nil
 end
 
---- Build the command to launch the LSP server.
---- On Unix the launcher spawns child processes (jbr JVM, Maven imports) — they
---- must share one process group so the whole group can be killed on exit, even
---- after being reparented to PID 1. No wrapper is needed for that: we start the
---- client with `detached = true` (see intellij-server.start) and libuv calls
---- setsid() in the child, making the server itself the session/group leader
---- (PGID == PID == the pid process.kill_tree receives).
---- Do NOT wrap this in `setsid`: it is already a group leader by then, so
---- setsid(1) forks and its parent exits immediately, and Neovim tears down the
---- connection to a server that is still running.
---- On Windows there are no process groups; process.kill_tree uses taskkill /T.
---- Note: the native launcher reads bin/intellij-server.vmoptions itself —
---- do NOT pass vmoptions as CLI arguments.
----@param server_path string? Explicit binary path from config.
----@return string[]?
-function M.build_cmd(server_path)
-  local bin = server_path or M.find_binary()
+--- Command and environment of `connection.mode = "router"`: the
+--- `lsp-router` shipped next to the server binary (1.0.86+), which is what
+--- the VS Code extension launches. It speaks LSP on stdio and routes it to
+--- the server of the workspace, starting one (`--socket=127.0.0.1:0
+--- --multi-client`, stopped 10 s after its last editor leaves) when none
+--- serves it yet, so editors on the same root share one server. Each server
+--- gets its own config/system directory under the cache root from the
+--- router, so the environment leaves idea.config.path and idea.system.path
+--- alone. The native launcher reads bin/intellij-server.vmoptions itself —
+--- do NOT pass vmoptions as arguments.
+---@param config table The plugin config.
+---@return string[]? cmd, table<string, string>? env
+function M.router_cmd(config)
+  local bin = config.server_path or M.find_binary()
   if not bin then
     vim.notify(
       "[intellij-server] Server binary not found.\n"
@@ -78,16 +75,21 @@ function M.build_cmd(server_path)
     )
     return nil
   end
-
-  local args = { bin, "--stdio" }
-  -- The server refuses to start unless the accepted EULA hash is passed.
-  local eula = M.eula_hash(vim.fn.fnamemodify(bin, ":h:h"))
-  if eula then
-    table.insert(args, "--eula")
-    table.insert(args, eula)
+  local router = vim.fn.fnamemodify(bin, ":h") .. "/lsp-router" .. (vim.fn.has("win32") == 1 and ".exe" or "")
+  if vim.fn.executable(router) == 0 then
+    vim.notify("[intellij-server] No lsp-router next to " .. bin .. " (server 1.0.86+ ships one).", vim.log.levels.ERROR)
+    return nil
   end
 
-  return args
+  local cmd = { router, "--server-launcher", bin, "--" }
+  -- The server refuses to start unless the accepted EULA hash is passed.
+  local server_dir = vim.fn.fnamemodify(bin, ":h:h")
+  local eula = M.eula_hash(server_dir)
+  if eula then
+    vim.list_extend(cmd, { "--eula", eula })
+  end
+  local data_dir = require("intellij-server.process").data_dir()
+  return cmd, M.build_env(server_dir, data_dir, config.java_home, config.jvm_args, { own_dirs = true })
 end
 
 --- Compute the EULA acceptance hash the server requires as its `--eula`
@@ -112,22 +114,25 @@ end
 ---@param java_home string? Explicit JDK home override.
 ---@param jvm_args string[]? Extra JVM options, e.g. { "-Xmx8g" }.
 ---@return table<string, string>
-function M.build_env(server_dir, data_dir, java_home, jvm_args)
+---@param opts { own_dirs?: boolean }? own_dirs: the server keeps its own config and system directories.
+function M.build_env(server_dir, data_dir, java_home, jvm_args, opts)
   -- The bundled JBR uses the macOS app-bundle layout on mac, plain jbr/ elsewhere
   local jbr_home = server_dir .. "/jbr/Contents/Home"
   if vim.fn.isdirectory(jbr_home) == 0 then
     jbr_home = server_dir .. "/jbr"
   end
 
-  local java_options = {
+  local java_options = (opts or {}).own_dirs and {} or {
     "-Didea.config.path=" .. data_dir .. "/config",
     "-Didea.system.path=" .. data_dir .. "/system",
     "-Didea.log.path=" .. data_dir .. "/log",
+  }
+  vim.list_extend(java_options, {
     -- The launcher dumps the heap on OOM to $HOME/java_error_in_intellij-server.hprof,
     -- ~1 GB that is never cleaned up and that blocks the next dump once it
     -- exists ("File exists"). A directory here makes the JVM name each dump.
     "-XX:HeapDumpPath=" .. data_dir .. "/log",
-  }
+  })
   -- Last wins in the JVM, and IJ_JAVA_OPTIONS is appended after
   -- bin/intellij-server.vmoptions, so -Xmx here overrides the shipped heap cap.
   vim.list_extend(java_options, jvm_args or {})

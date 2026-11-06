@@ -46,28 +46,17 @@ Anything after the class name is passed to `main(String[])`, quoted like a shell
 For JVM arguments, environment variables or a working directory, use a nvim-dap
 configuration (further down) — those are per-program settings worth keeping around.
 
-Before a session starts, whatever the configuration leaves out is resolved from the
-project model, the same way the VS Code extension resolves it:
+The server resolves the rest itself (since server 1.0.86, as for the VS Code extension): it
+finds the file declaring `mainClass`, builds the module with its build tool, takes the
+classpath, JDK, module path and working directory from the project model, and runs the
+program. The build's output and the program's arrive in the same console. `tool` picks how
+the program runs:
 
-| Step | Resolved via |
-|------|--------------|
-| `file` from `mainClass` | `intellij.java.resolveClassDocument` |
-| which launcher (`launcher = "auto"`, what the lenses use) | `intellij.java.resolveBuildToolLaunch` — Gradle when it can run the module, otherwise a JVM launch |
-| build before a JVM launch | `intellij.java.resolveBuildCommand` — the tool's own compile command (`mvn -pl :app -am compile`, `gradle :app:classes`, …), run with its output in `:IntellijServerBuildLog` |
-| `javaExec`, `classPaths`, `modulePaths`, `moduleName`, `moduleContentPaths`, `cwd`, `vmArgs` | `intellij.java.resolveLaunch` — one request; values the configuration sets are sent as overrides and the server merges them |
-| Gradle launch: `buildToolTarget`, `classPaths` (breakpoint scope) | `intellij.java.resolveBuildToolLaunch` |
-
-So `mainClass` on its own is enough. Two ways to run exist, selected by `launcher`:
-
-- **`"jvm"`** (default for your own nvim-dap configurations): the module is compiled with its
-  build tool first, then `java` is spawned with the resolved classpath. Set `build = false` on a
-  configuration, or `dap = { build_before_launch = false }` in `setup()`, to skip the compile.
-- **`"gradle"`**: the adapter hands the launch to Gradle, which compiles as part of running. No
-  classpath or JDK is decided on this side; `projectPath`, `sourceSet` and `gradleArgs` speak
-  Gradle's vocabulary instead. Refused when Gradle cannot launch the module.
-- **`"auto"`**: what the Run/Debug lenses and `:IntellijServerRun` use — `"gradle"` when Gradle can
-  run the module, otherwise `"jvm"`. Maven and plain projects always launch as `"jvm"`; no single
-  Maven invocation can both build the reactor and exec one module.
+- **`"java"`**: a JVM process, after the build tool compiled the module.
+- **`"gradle"`** / **`"bazel"`**: the build tool's own run, which compiles as part of running;
+  `projectPath`, `sourceSet` and `toolArgs` speak its vocabulary.
+- **unset**: the server's choice — the build tool when it can run the module (Gradle), else a
+  JVM process. The Run/Debug lenses pass the tool the server named for the module.
 
 Launch configurations support:
 
@@ -79,79 +68,28 @@ Launch configurations support:
 | `vmArgs`      | `string[]` | JVM arguments, e.g. `{ "-Xmx512m", "-ea" }` |
 | `env`         | `table`    | Extra environment variables for the launched process |
 | `cwd`         | `string`   | Working directory |
-| `javaExec`    | `string`   | Path to the `java` executable (default: project SDK) |
-| `classPaths`  | `string[]` | Runtime classpath override |
-| `modulePaths` | `string[]` | JPMS module path override; resolved from the project model if empty |
-| `moduleName`  | `string`   | JPMS module owning the main class, launched as `-m moduleName/mainClass`; resolved automatically if empty |
-| `launcher`    | `string`   | `"jvm"` (default), `"gradle"`, or `"auto"` — see above |
-| `build`       | `boolean`  | Compile the module before a `"jvm"` launch. Default: `dap.build_before_launch` (on) |
-| `projectPath` | `string`   | Gradle only: project to run in, as Gradle names it (`":app"`). Default: the project the module came from |
+| `tool`        | `string`   | `"java"`, `"gradle"` or `"bazel"` — see above. Default: the server's choice |
+| `projectPath` | `string`   | Gradle project to run in (`":app"`) or Bazel target. Default: the module's |
 | `sourceSet`   | `string`   | Gradle only: source set whose runtime classpath the program runs on (`"main"`, `"test"`). Default: the module's |
-| `gradleArgs`  | `string[]` | Gradle only: arguments for the Gradle invocation itself (`"--offline"`, `"-Pkey=value"`) |
+| `toolArgs`    | `string[]` | Arguments for the build tool invocation itself (`"--offline"`, `"-Pkey=value"`) |
+| `stepFilters` | `table`    | `{ skipClasses = { "java.*" }, skipSynthetics = true, skipConstructors = true, skipGetters = true, skipClassLoaders = true }` |
 | `noDebug`     | `boolean`  | Run without attaching the debugger |
 | `console`     | `string`   | Where to run the program: `internalConsole`, `integratedTerminal` (default), `externalTerminal`, or `none` (output as DAP events; what test runs use) |
 
-With `integratedTerminal` (the default) the adapter sends a DAP `runInTerminal`
-reverse request, which nvim-dap answers by opening a terminal buffer for the
-program's stdio. It is a real terminal, so a program that reads `System.in`
-can be typed into while the debugger is attached.
-
-`internalConsole` keeps output in the DAP REPL instead, but DAP gives that mode
-no stdin channel — a program that waits for input hangs. `externalTerminal`
-needs a terminal configured, otherwise nvim-dap warns and falls back to the
-integrated one:
-
-```lua
-require("dap").defaults.fallback.external_terminal = {
-  command = "/opt/homebrew/bin/wezterm",
-  args = { "start", "--" },
-}
--- where the integrated terminal opens, and whether the cursor moves into it
-require("dap").defaults.intellij.terminal_win_cmd = "belowright 15new"
-require("dap").defaults.intellij.focus_terminal = false
-```
+The server runs the program itself and streams its stdout and stderr as DAP output events.
+With `integratedTerminal` (the default) or `externalTerminal` the plugin writes them into a
+terminal buffer in a bottom split (`intellij://run/…`), one per session in the same window,
+like the VS Code extension's run terminal. `internalConsole` sends them to the DAP REPL. The
+program gets no stdin either way — one that waits for input hangs.
 
 ### Managing the program terminal
 
-The terminal buffer is nvim-dap's, not the plugin's — it is named
-`[dap-terminal] <name>` after the launch configuration (the lenses and
-`:IntellijServerRun` use the class's simple name).
-
-**Hide** it by closing the window (`<C-w>q` or `:hide`); the buffer and the
-program keep running. **Show** it again with `:ls` and `:sb N`, or bind a toggle:
-
-```lua
-vim.keymap.set("n", "<leader>dt", function()
-  for _, win in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
-    local buf = vim.api.nvim_win_get_buf(win)
-    if vim.api.nvim_buf_get_name(buf):match("%[dap%-terminal%]") then
-      return vim.api.nvim_win_close(win, true)             -- visible → hide
-    end
-  end
-  for _, buf in ipairs(vim.api.nvim_list_bufs()) do
-    if vim.api.nvim_buf_is_loaded(buf)
-        and vim.api.nvim_buf_get_name(buf):match("%[dap%-terminal%]") then
-      vim.cmd("belowright 15split")                        -- hidden → show
-      return vim.api.nvim_win_set_buf(0, buf)
-    end
-  end
-end, { desc = "Toggle DAP terminal" })
-```
-
-**Kill** the program, from polite to guaranteed:
-
-1. `:DapTerminate` (or `require("dap").terminate()`) — even a `Run` lens launch
-   (`noDebug`) has a live DAP session behind it, so this asks the adapter to
-   kill the debuggee and ends the session. The normal way.
-2. `Ctrl-C` in the terminal — `i` on the buffer enters terminal-mode, `<C-c>`
-   sends the program SIGINT. Interrupts a server or a loop without touching the
-   session.
-3. `:bd!` on the terminal buffer — deleting a terminal buffer makes Neovim kill
-   its job unconditionally. Works even when the session or adapter is wedged.
-
-Note that nvim-dap does not kill the job when a session merely closes, so after
-an abnormal session end the program can linger in the hidden buffer — `:bd!` is
-the cleanup for that case.
+**Hide** the `intellij://run/…` window by closing it (`<C-w>q`); the program keeps running and its
+output keeps collecting in the buffer (`:ls` lists it, `:sb N` shows it again). The next launch
+opens the split again and replaces a finished run's buffer. **Stop** the program with `:DapTerminate` (or
+`require("dap").terminate()`) — a `Run` lens launch (`noDebug`) has a DAP session behind it too.
+The terminal buffer only shows output: `Ctrl-C` in it or deleting it does not reach the program,
+which the server runs.
 
 Example custom configuration:
 
@@ -204,10 +142,10 @@ dap.set_exception_breakpoints({ "uncaught" })
 
 ## Tests
 
-Tests run the way IntelliJ runs them (server 0.0.13+): the server finds them,
+Java and Kotlin tests run the way IntelliJ runs them: the server finds them,
 resolves a launch of its own JUnit starter for exactly the tests asked for, and
 the plugin runs that launch through nvim-dap like a main class — compiled first,
-with breakpoints when debugging.
+with breakpoints when debugging. Kotlin tests need server 1.0.86.
 
 | | Run | Debug |
 |---|---|---|
@@ -216,6 +154,15 @@ with breakpoints when debugging.
 | Every test in the file | `:IntellijServerTest file` | `:IntellijServerTest! file` |
 | Every test in the module | `:IntellijServerTest module` | `:IntellijServerTest! module` |
 | Lua | `require("intellij-server.tests").run({ scope = "cursor" })` | `{ scope = "cursor", debug = true }` |
+
+JVM arguments, environment variables, a working directory and a tag filter for
+test runs come from the `tests` option (the VS Code `java.test.config` setting):
+
+```lua
+require("intellij-server").setup({
+  tests = { vm_args = { "-Xmx1g" }, env = { SPRING_PROFILES_ACTIVE = "test" }, tags = { "!slow" } },
+})
+```
 
 The test at the cursor is the last test method declared at or above the cursor
 line, or the class when the cursor is above the first one. `module` runs the
@@ -241,8 +188,7 @@ commands still work.
 How it works: `intellij.jvm.discoverTestsInFile` / `discoverTestsInModule` list
 the test classes and methods, `intellij.jvm.resolveTestLaunch` turns the chosen
 ids into a `com.intellij.rt.junit.JUnitStarter` launch with the runner's jars,
-and `intellij.java.resolveLaunch` supplies the project's own classpath, JDK and
-working directory. The runner reports every test as a TeamCity service message
+and the adapter builds the module and runs the starter on its test runtime. The runner reports every test as a TeamCity service message
 on stdout (`##teamcity[testFailed name='fails()' message='…' expected='4'
 actual='3' …]`); with `console = "none"` those arrive as DAP output events,
 which the plugin turns into the results above. nvim-dap's REPL does not see
@@ -264,12 +210,12 @@ configurations take `port`, `hostName` (default `localhost`) and `timeout` (ms, 
 
 - The Run/Debug lenses carry only the main class, so they always launch a
   program bare. Use `:IntellijServerRun` or a configuration to pass arguments.
-- A `"jvm"` launch runs `java` against the output directories the build tool
+- A `"java"` launch runs `java` against the output directories the build tool
   fills; a build whose outputs lie elsewhere runs stale classes or none. Mill
   projects hit this out of the box, see
   [Troubleshooting](troubleshooting.md#mill-projects-rundebug-fails-with-classnotfoundexception-for-the-main-class).
 - Tests are run by IntelliJ's starter, not by Maven or Gradle: surefire and
   Gradle `test {}` settings (system properties, JVM arguments, forking) do not
-  apply. For those, run the test under the build tool with JDWP enabled and
+  apply; the `tests` option covers JVM arguments and environment. For the rest, run the test under the build tool with JDWP enabled and
   attach — `mvnDebug test -Dtest=MyTest` or `gradle test --tests MyTest
   --debug-jvm`, then `:IntellijServerAttach 5005`.

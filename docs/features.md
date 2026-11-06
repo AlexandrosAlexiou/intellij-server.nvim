@@ -15,13 +15,14 @@
 | `:IntellijServerVersion` | Show installed version info |
 | `:IntellijServerLogs` | Open the server log and Neovim's LSP log |
 | `:IntellijServerBuildLog` | Open the streamed import/build log (Maven downloads, compilation, …) |
+| `:IntellijServerBuild [workspace]` | Build the current file's module on the server with its build tool, or every module; output in the build log (server 1.0.86+) |
 | `:IntellijServerLibraries` | Browse dependency and JDK sources as an External Libraries tree in oil.nvim (`!` re-reads the workspace) |
 | `:IntellijServerNewFile [template]` | Create a new file from an IntelliJ template |
 | `:IntellijServerFormat` | Format the buffer with IntelliJ's code-style engine (`:IntellijServerFormat!` runs async) |
 | `:IntellijServerRun [main.Class] [args...]` | Run a main class with program arguments (`:IntellijServerRun!` debugs it) |
 | `:IntellijServerTest [cursor\|file\|module]` | Run the test at the cursor, or every test of the file or module (`:IntellijServerTest!` debugs them) |
 | `:IntellijServerAttach [port]` | Attach the debugger to a JVM over JDWP (default 5005) |
-| `:IntellijServerLicense [subcommand]` | Show the license (`status`, the default) or activate one: `login` (JetBrains Account, in the browser), `subscription`, `trial`, `code [activation code]`, `server [url]`, `logout` |
+| `:IntellijServerLicense [subcommand]` | Show the license (`status`, the default) or activate one: `login` (JetBrains Account, in the browser), `subscription`, `trial`, `code [activation code]`, `server [url]`, `authorize [address]` (finish a license server sign-in over SSH), `logout` |
 
 ## Standard LSP
 
@@ -47,7 +48,7 @@ Neovim's built-in LSP client with no configuration.
 | Inlay hints | enabled on attach by the plugin — `inlay_hints = { enabled = false }` to opt out, or toggle with `vim.lsp.inlay_hint.enable()` |
 | Folding range | wired on attach: `foldexpr = v:lua.vim.lsp.foldexpr()`, folds start open — `folding = { enabled = false }` to opt out; use `zc`/`zo`/`za` |
 | Code lens | refreshed on attach and on edits by the plugin — run with `vim.lsp.codelens.run()`; includes the Run/Debug lenses above `main` methods and the Run Test / Debug Test lenses above tests when nvim-dap is available. VS Code codicon markup in titles is swapped for Nerd Font glyphs and lenses are aligned with the code they sit above (`icons`, `align`); `code_lens = { enabled = false }` to opt out |
-| Tests | `:IntellijServerTest` runs the test at the cursor, `:IntellijServerTest!` debugs it; `file` and `module` scopes, lenses above every test — see [Debugging](debugging.md#tests) |
+| Tests | Java and Kotlin. `:IntellijServerTest` runs the test at the cursor, `:IntellijServerTest!` debugs it; `file` and `module` scopes, lenses above every test — see [Debugging](debugging.md#tests) |
 | Refactoring prompts | choices a refactoring offers (where to initialize an extracted field, whether inlining removes the method) come as `vim.ui.select`; conflicts it finds as a confirm prompt plus the quickfix list — see below |
 | Call hierarchy | `vim.lsp.buf.incoming_calls()` / `vim.lsp.buf.outgoing_calls()` |
 | Type hierarchy | `vim.lsp.buf.typehierarchy("subtypes")` / `("supertypes")` |
